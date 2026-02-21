@@ -15,6 +15,7 @@ primary_region = "fra"
   CONTEXT_MCP_DATA_DIR = "/data"
   CONTEXT_MCP_VAULT_DIR = "/data/vault"
   ALLOWED_ORIGINS = "https://context-vault-app-git-main-klarhimmel.vercel.app"
+  CORS_ORIGIN = "https://app.context-vault.com,https://context-vault-app-git-main-klarhimmel.vercel.app"
 
 [[mounts]]
   source = "context_vault_data"

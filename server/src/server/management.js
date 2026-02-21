@@ -591,9 +591,13 @@ export function createManagementRoutes(ctx) {
 
     const stmts = prepareMetaStatements(getMetaDb());
 
-    // Idempotency check — prevent double-processing retried webhooks
-    const existing = stmts.getProcessedWebhook.get(event.id);
-    if (existing) return c.json({ received: true, duplicate: true });
+    // Idempotency gate — INSERT first; UNIQUE constraint rejects duplicates atomically
+    try {
+      stmts.insertProcessedWebhook.run(event.id, event.type);
+    } catch {
+      // UNIQUE constraint violation → already processed
+      return c.json({ received: true, duplicate: true });
+    }
 
     switch (event.type) {
       case "checkout.session.completed": {
@@ -654,8 +658,7 @@ export function createManagementRoutes(ctx) {
       }
     }
 
-    // Mark processed + periodic cleanup
-    stmts.insertProcessedWebhook.run(event.id, event.type);
+    // Periodic cleanup (non-critical)
     try {
       stmts.pruneOldWebhooks.run();
     } catch {}

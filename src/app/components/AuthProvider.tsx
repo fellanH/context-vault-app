@@ -1,4 +1,5 @@
 import { useState, useCallback, useMemo, useEffect } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 import {
   AuthContext,
   type AuthState,
@@ -6,11 +7,17 @@ import {
   setStoredToken,
   clearStoredToken,
 } from "../lib/auth";
-import { api, ApiError, setStoredEncryptionSecret } from "../lib/api";
+import {
+  api,
+  ApiError,
+  setStoredEncryptionSecret,
+  clearStoredEncryptionSecret,
+} from "../lib/api";
 import { transformUser } from "../lib/types";
 import type { User, ApiUserResponse, ApiRegisterResponse } from "../lib/types";
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
+  const queryClient = useQueryClient();
   const [token, setToken] = useState<string | null>(getStoredToken);
   const [user, setUser] = useState<User | null>(null);
   const [isLoading, setIsLoading] = useState(true);
@@ -78,9 +85,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const logout = useCallback(() => {
     clearStoredToken();
+    clearStoredEncryptionSecret();
+    queryClient.clear();
     setToken(null);
     setUser(null);
-  }, []);
+  }, [queryClient]);
 
   const value: AuthState = useMemo(
     () => ({

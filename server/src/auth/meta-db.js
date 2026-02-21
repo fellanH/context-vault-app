@@ -317,7 +317,7 @@ export function prepareMetaStatements(db) {
       `INSERT INTO team_invites (id, team_id, email, invited_by, token, expires_at) VALUES (?, ?, ?, ?, ?, ?)`,
     ),
     getInviteByToken: db.prepare(
-      `SELECT * FROM team_invites WHERE token = ? AND status = 'pending'`,
+      `SELECT * FROM team_invites WHERE token = ? AND status = 'pending' AND expires_at > datetime('now')`,
     ),
     getInvitesByTeam: db.prepare(
       `SELECT * FROM team_invites WHERE team_id = ? ORDER BY created_at DESC`,

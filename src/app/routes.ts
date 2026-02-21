@@ -12,6 +12,7 @@ import { NotFound, RootErrorBoundary } from "./pages/NotFound";
 import { ApiKeys } from "./pages/settings/ApiKeys";
 import { Billing } from "./pages/settings/Billing";
 import { DataManagement } from "./pages/settings/DataManagement";
+import { ImportPage } from "./pages/Import";
 import { Account } from "./pages/settings/Account";
 import { Sync } from "./pages/settings/Sync";
 import { TeamCreate } from "./pages/team/Create";
@@ -29,6 +30,7 @@ export const router = createBrowserRouter([
     children: [
       { index: true, Component: Dashboard },
       { path: "search", Component: Search },
+      { path: "import", Component: ImportPage },
       { path: "vault/knowledge", Component: Knowledge },
       { path: "vault/entities", Component: Entities },
       { path: "vault/events", Component: Events },

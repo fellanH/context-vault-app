@@ -4,6 +4,7 @@ import {
   Sun,
   Home,
   Search,
+  Upload,
   FileText,
   Users,
   Calendar,
@@ -36,6 +37,7 @@ interface NavItem {
 const mainItems: NavItem[] = [
   { path: "/", label: "Dashboard", icon: Home },
   { path: "/search", label: "Search", icon: Search },
+  { path: "/import", label: "Import", icon: Upload },
 ];
 
 const vaultItems: NavItem[] = [
@@ -55,6 +57,7 @@ function getPageTitle(pathname: string): string {
   if (pathname === "/team/new") return "Create Team";
   if (pathname.startsWith("/team/invite")) return "Team Invite";
   if (pathname.startsWith("/team/")) return "Team";
+  if (pathname === "/import") return "Import";
   const all = [...mainItems, ...vaultItems, ...settingsItems];
   const match = all.find((item) =>
     item.path === "/" ? pathname === "/" : pathname.startsWith(item.path),

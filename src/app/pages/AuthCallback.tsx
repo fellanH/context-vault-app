@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router";
 import { useAuth } from "../lib/auth";
+import { setStoredEncryptionSecret } from "../lib/api";
 import { Loader2 } from "lucide-react";
 
 export function AuthCallback() {
@@ -9,6 +10,7 @@ export function AuthCallback() {
   const hash = window.location.hash;
   const params = new URLSearchParams(hash.slice(1));
   const token = params.get("token");
+  const encryptionSecret = params.get("encryption_secret");
 
   const [error, setError] = useState<string | null>(
     token ? null : "No authentication token received",
@@ -23,6 +25,10 @@ export function AuthCallback() {
     // Clear the hash from URL for security
     window.history.replaceState(null, "", window.location.pathname);
 
+    if (encryptionSecret) {
+      setStoredEncryptionSecret(encryptionSecret);
+    }
+
     loginWithApiKey(token)
       .then(() => {
         navigate("/");
@@ -31,7 +37,7 @@ export function AuthCallback() {
         setError("Authentication failed");
         setTimeout(() => navigate("/login"), 3000);
       });
-  }, [token, loginWithApiKey, navigate]);
+  }, [token, encryptionSecret, loginWithApiKey, navigate]);
 
   return (
     <div className="min-h-screen flex items-center justify-center bg-background p-4">

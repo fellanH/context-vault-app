@@ -16,6 +16,7 @@ import {
   isOnboardingDismissed,
   dismissOnboarding,
   resetOnboarding,
+  markExtensionInstalled,
 } from "../lib/onboarding";
 import { formatMegabytes, formatRelativeTime } from "../lib/format";
 import {
@@ -30,24 +31,33 @@ import {
   Copy,
   Check,
   ExternalLink,
-  Loader2,
   CircleCheck,
   Link2,
-  UserPlus,
-  FolderOpen,
+  ChevronDown,
+  ChevronUp,
 } from "lucide-react";
 import { toast } from "sonner";
 
 const STEP_ICONS: Record<string, React.ElementType> = {
-  "sign-in": UserPlus,
-  "connect-folder": FolderOpen,
   "connect-tools": Link2,
   "first-entry": Plus,
   "install-extension": ExternalLink,
 };
 
+const MCP_JSON_SNIPPET = `{
+  "mcpServers": {
+    "context-vault": {
+      "command": "npx",
+      "args": ["-y", "context-vault", "mcp"],
+      "env": {
+        "CV_API_KEY": "YOUR_API_KEY"
+      }
+    }
+  }
+}`;
+
 export function Dashboard() {
-  const { user, isAuthenticated } = useAuth();
+  const { user } = useAuth();
   const navigate = useNavigate();
   const { data: entriesData, isLoading: entriesLoading } = useEntries({
     limit: 10,
@@ -56,18 +66,16 @@ export function Dashboard() {
   const { data: apiKeys } = useApiKeys();
 
   const entriesUsed = usage?.entries.used ?? 0;
-  const hasApiKey = (apiKeys?.length ?? 0) > 0;
   const hasMcpActivity = (apiKeys ?? []).some((key) => Boolean(key.lastUsedAt));
-  const steps = getOnboardingSteps({
-    isAuthenticated,
-    entriesUsed,
-    hasApiKey,
-    hasMcpActivity,
-  });
+  const steps = getOnboardingSteps({ entriesUsed, hasMcpActivity });
+
   const [showOnboarding, setShowOnboarding] = useState(
     () => !isOnboardingDismissed(),
   );
   const [copiedCmd, setCopiedCmd] = useState(false);
+  // Used only to trigger re-render after markExtensionInstalled() writes to localStorage
+  const [, setExtensionInstalled] = useState(false);
+  const [showConnectGuide, setShowConnectGuide] = useState(false);
 
   const allComplete = steps.every((s) => s.completed);
   const completedCount = steps.filter((s) => s.completed).length;
@@ -98,6 +106,11 @@ export function Dashboard() {
     } else if (step.action?.startsWith("/")) {
       navigate(step.action);
     }
+  };
+
+  const handleMarkExtensionInstalled = () => {
+    markExtensionInstalled();
+    setExtensionInstalled(true);
   };
 
   const isUnlimited = (limit: number) => !Number.isFinite(limit);
@@ -158,7 +171,7 @@ export function Dashboard() {
         </p>
       </div>
 
-      {/* Onboarding Journey — Hero section */}
+      {/* Onboarding Journey — hidden once dismissed or all steps complete */}
       {showOnboarding && !allComplete && (
         <Card>
           <CardHeader className="pb-3">
@@ -180,7 +193,7 @@ export function Dashboard() {
             </div>
           </CardHeader>
           <CardContent>
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
               {steps.map((step) => {
                 const Icon = STEP_ICONS[step.id] || FileText;
 
@@ -236,6 +249,16 @@ export function Dashboard() {
                         {step.actionLabel || "Go"}
                       </Button>
                     )}
+                    {!step.completed && step.id === "install-extension" && (
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="w-full text-xs text-muted-foreground"
+                        onClick={handleMarkExtensionInstalled}
+                      >
+                        Mark as installed
+                      </Button>
+                    )}
                     {!step.completed && step.id === "connect-tools" && (
                       <pre className="bg-muted p-2 rounded text-[10px] font-mono overflow-x-auto">
                         {connectCommand}
@@ -249,26 +272,141 @@ export function Dashboard() {
         </Card>
       )}
 
-      {/* Setup complete badge */}
-      {allComplete && !showOnboarding && (
-        <div className="flex items-center justify-between p-3 rounded-lg border border-primary/20 bg-primary/5">
-          <div className="flex items-center gap-2">
-            <CircleCheck className="size-4 text-primary" />
-            <span className="text-sm text-primary font-medium">
-              Setup complete
-            </span>
-          </div>
-          <Button
-            variant="ghost"
-            size="sm"
-            className="text-xs"
+      {/* Connect AI Tools — always visible */}
+      <Card>
+        <CardContent className="pt-4">
+          {hasMcpActivity && !showConnectGuide ? (
+            /* Connected — compact row */
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <CircleCheck className="size-4 text-green-500" />
+                <span className="text-sm font-medium text-green-600 dark:text-green-400">
+                  AI tools connected
+                </span>
+              </div>
+              <Button
+                variant="ghost"
+                size="sm"
+                className="text-xs gap-1"
+                onClick={() => setShowConnectGuide(true)}
+              >
+                View setup guide
+                <ChevronDown className="size-3" />
+              </Button>
+            </div>
+          ) : (
+            /* Full setup instructions */
+            <div className="space-y-4">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <Zap className="size-4 text-primary" />
+                  <h3 className="text-sm font-semibold">Connect AI Tools</h3>
+                </div>
+                {hasMcpActivity && (
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="text-xs gap-1"
+                    onClick={() => setShowConnectGuide(false)}
+                  >
+                    Collapse
+                    <ChevronUp className="size-3" />
+                  </Button>
+                )}
+              </div>
+
+              <div className="space-y-4">
+                {/* Step 1 */}
+                <div className="flex items-start gap-3">
+                  <span className="flex-shrink-0 w-5 h-5 rounded-full bg-muted text-muted-foreground text-xs flex items-center justify-center font-medium mt-0.5">
+                    1
+                  </span>
+                  <div className="space-y-1.5">
+                    <p className="text-sm">Get your API key</p>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      asChild
+                      className="text-xs h-7"
+                    >
+                      <Link to="/settings/api-keys">
+                        Open API Keys
+                        <ExternalLink className="size-3 ml-1.5" />
+                      </Link>
+                    </Button>
+                  </div>
+                </div>
+
+                {/* Step 2 */}
+                <div className="flex items-start gap-3">
+                  <span className="flex-shrink-0 w-5 h-5 rounded-full bg-muted text-muted-foreground text-xs flex items-center justify-center font-medium mt-0.5">
+                    2
+                  </span>
+                  <div className="space-y-1.5 flex-1 min-w-0">
+                    <p className="text-sm">
+                      Run this command in your terminal:
+                    </p>
+                    <div className="flex items-center gap-2 bg-muted rounded-md px-3 py-2">
+                      <code className="text-xs font-mono flex-1 truncate">
+                        {connectCommand}
+                      </code>
+                      <button
+                        onClick={copyConnectCommand}
+                        className="flex-shrink-0 text-muted-foreground hover:text-foreground transition-colors"
+                        aria-label="Copy command"
+                      >
+                        {copiedCmd ? (
+                          <Check className="size-3.5" />
+                        ) : (
+                          <Copy className="size-3.5" />
+                        )}
+                      </button>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Step 3 — manual config */}
+                <div className="flex items-start gap-3">
+                  <span className="flex-shrink-0 w-5 h-5 rounded-full bg-muted text-muted-foreground text-xs flex items-center justify-center font-medium mt-0.5">
+                    3
+                  </span>
+                  <div className="flex-1 min-w-0">
+                    <details className="group">
+                      <summary className="text-sm cursor-pointer list-none flex items-center gap-1.5 text-muted-foreground hover:text-foreground transition-colors">
+                        <ChevronDown className="size-3.5 transition-transform group-open:rotate-180" />
+                        Or configure manually (JSON)
+                      </summary>
+                      <pre className="mt-2 bg-muted p-3 rounded-md text-[11px] font-mono overflow-x-auto">
+                        {MCP_JSON_SNIPPET}
+                      </pre>
+                    </details>
+                  </div>
+                </div>
+              </div>
+
+              <p className="text-xs text-muted-foreground">
+                Works with: <span className="text-foreground">Claude Code</span>{" "}
+                · <span className="text-foreground">Cursor</span> ·{" "}
+                <span className="text-foreground">Windsurf</span> ·{" "}
+                <span className="text-foreground">Zed</span>
+              </p>
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      {/* Show getting started guide link — visible when onboarding card is hidden but not all done */}
+      {!showOnboarding && !allComplete && (
+        <div className="text-center">
+          <button
+            className="text-xs text-muted-foreground hover:text-foreground transition-colors"
             onClick={() => {
               resetOnboarding();
               setShowOnboarding(true);
             }}
           >
-            Show setup
-          </Button>
+            Show getting started guide
+          </button>
         </div>
       )}
 

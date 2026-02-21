@@ -6,7 +6,7 @@ import {
   setStoredToken,
   clearStoredToken,
 } from "../lib/auth";
-import { api, ApiError } from "../lib/api";
+import { api, ApiError, setStoredEncryptionSecret } from "../lib/api";
 import { transformUser } from "../lib/types";
 import type { User, ApiUserResponse, ApiRegisterResponse } from "../lib/types";
 
@@ -62,6 +62,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
     setStoredToken(raw.apiKey.key);
     setToken(raw.apiKey.key);
+    if (raw.encryptionSecret) {
+      setStoredEncryptionSecret(raw.encryptionSecret);
+    }
     setUser({
       id: raw.userId,
       email: raw.email,

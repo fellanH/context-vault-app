@@ -1,33 +1,24 @@
 import type { OnboardingStep } from "./types";
 
 const DISMISSED_KEY = "context-vault-onboarding-dismissed";
+const EXTENSION_INSTALLED_KEY = "context-vault-extension-installed";
 
 interface OnboardingInputs {
-  isAuthenticated: boolean;
   entriesUsed: number;
-  hasApiKey: boolean;
   hasMcpActivity: boolean;
 }
 
 export function getOnboardingSteps({
-  isAuthenticated,
   entriesUsed,
-  hasApiKey,
   hasMcpActivity,
 }: OnboardingInputs): OnboardingStep[] {
   return [
     {
-      id: "sign-in",
-      label: "Sign in",
-      completed: isAuthenticated,
-      actionLabel: "Sign in",
-      action: "/login",
-    },
-    {
       id: "connect-tools",
       label: "Connect AI tools",
       completed: hasMcpActivity,
-      description: "Auto-configure all your AI tools with one command",
+      description:
+        "Run one command to configure Claude Code, Cursor, and other tools",
       action: "copy-connect-command",
       actionLabel: "Copy command",
     },
@@ -41,7 +32,7 @@ export function getOnboardingSteps({
     {
       id: "install-extension",
       label: "Install Chrome extension",
-      completed: false,
+      completed: isExtensionInstalled(),
       description: "Search your vault from ChatGPT, Claude, and Gemini",
       action: "chrome-web-store-link",
       actionLabel: "Install",
@@ -59,4 +50,12 @@ export function dismissOnboarding() {
 
 export function resetOnboarding() {
   localStorage.removeItem(DISMISSED_KEY);
+}
+
+export function markExtensionInstalled(): void {
+  localStorage.setItem(EXTENSION_INSTALLED_KEY, "true");
+}
+
+export function isExtensionInstalled(): boolean {
+  return localStorage.getItem(EXTENSION_INSTALLED_KEY) === "true";
 }

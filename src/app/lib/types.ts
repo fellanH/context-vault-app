@@ -245,6 +245,7 @@ export interface ApiRegisterResponse {
     prefix: string;
     message: string;
   };
+  encryptionSecret?: string | null;
 }
 
 export interface ApiUserResponse {

@@ -1,6 +1,7 @@
 import { useState } from "react";
 import type { Entry } from "../lib/types";
 import { useEntries } from "../lib/hooks";
+import { formatRelativeTime } from "../lib/format";
 import { Badge } from "../components/ui/badge";
 import { Button } from "../components/ui/button";
 import { Input } from "../components/ui/input";
@@ -104,6 +105,7 @@ export function Knowledge() {
                 <SelectItem value="insight">Insight</SelectItem>
                 <SelectItem value="decision">Decision</SelectItem>
                 <SelectItem value="pattern">Pattern</SelectItem>
+                <SelectItem value="reference">Reference</SelectItem>
               </SelectContent>
             </Select>
           </div>
@@ -272,16 +274,4 @@ export function Knowledge() {
       />
     </>
   );
-}
-
-function formatRelativeTime(date: Date): string {
-  const now = new Date();
-  const diffMs = now.getTime() - date.getTime();
-  const diffMins = Math.floor(diffMs / 60000);
-  const diffHours = Math.floor(diffMs / 3600000);
-  const diffDays = Math.floor(diffMs / 86400000);
-
-  if (diffMins < 60) return `${diffMins}m ago`;
-  if (diffHours < 24) return `${diffHours}h ago`;
-  return `${diffDays}d ago`;
 }

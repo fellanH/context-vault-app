@@ -17,7 +17,7 @@ import {
   dismissOnboarding,
   resetOnboarding,
 } from "../lib/onboarding";
-import { formatMegabytes } from "../lib/format";
+import { formatMegabytes, formatRelativeTime } from "../lib/format";
 import { uploadLocalVault } from "../lib/api";
 import {
   FileText,
@@ -41,18 +41,6 @@ import {
 import { toast } from "sonner";
 
 const API_URL = import.meta.env.VITE_API_URL || "/api";
-
-function formatRelativeTime(date: Date): string {
-  const now = new Date();
-  const diffMs = now.getTime() - date.getTime();
-  const diffMins = Math.floor(diffMs / 60000);
-  const diffHours = Math.floor(diffMs / 3600000);
-  const diffDays = Math.floor(diffMs / 86400000);
-
-  if (diffMins < 60) return `${diffMins}m ago`;
-  if (diffHours < 24) return `${diffHours}h ago`;
-  return `${diffDays}d ago`;
-}
 
 const STEP_ICONS: Record<string, React.ElementType> = {
   "sign-in": UserPlus,

@@ -1,5 +1,5 @@
 export type Category = "knowledge" | "entity" | "event";
-export type KnowledgeKind = "insight" | "decision" | "pattern";
+export type KnowledgeKind = "insight" | "decision" | "pattern" | "reference";
 export type EntityKind = "project" | "contact" | "tool";
 export type EventKind = "session" | "log";
 

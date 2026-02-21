@@ -94,7 +94,10 @@ export function EntryInspector({
               {/* Breadcrumbs */}
               <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
                 {breadcrumbs.map((crumb, i) => (
-                  <div key={i} className="flex items-center gap-1.5">
+                  <div
+                    key={`${i}-${crumb}`}
+                    className="flex items-center gap-1.5"
+                  >
                     <span
                       className={
                         i === breadcrumbs.length - 1
@@ -146,19 +149,9 @@ export function EntryInspector({
               <TabsContent value="content" className="h-full">
                 <ScrollArea className="h-full pr-2">
                   <div className="prose prose-sm dark:prose-invert max-w-none pr-2">
-                    <div
-                      className="whitespace-pre-wrap font-['Inter']"
-                      dangerouslySetInnerHTML={{
-                        __html: entry.body
-                          .replace(/^# (.+)$/gm, "<h1>$1</h1>")
-                          .replace(/^## (.+)$/gm, "<h2>$1</h2>")
-                          .replace(/^### (.+)$/gm, "<h3>$1</h3>")
-                          .replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>")
-                          .replace(/`(.+?)`/g, "<code>$1</code>")
-                          .replace(/^- (.+)$/gm, "<li>$1</li>")
-                          .replace(/(<li>.*<\/li>)/s, "<ul>$1</ul>"),
-                      }}
-                    />
+                    <pre className="whitespace-pre-wrap font-['Inter'] text-sm bg-transparent border-none p-0 m-0">
+                      {entry.body}
+                    </pre>
                   </div>
                 </ScrollArea>
               </TabsContent>

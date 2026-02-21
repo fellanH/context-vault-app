@@ -226,7 +226,7 @@ export function Events() {
                       size="icon"
                       className="size-8"
                       disabled={page === 0}
-                      onClick={() => setPage(page - 1)}
+                      onClick={() => setPage((p) => p - 1)}
                     >
                       <ChevronLeft className="size-4" />
                     </Button>
@@ -238,7 +238,7 @@ export function Events() {
                       size="icon"
                       className="size-8"
                       disabled={page >= totalPages - 1}
-                      onClick={() => setPage(page + 1)}
+                      onClick={() => setPage((p) => p + 1)}
                     >
                       <ChevronRight className="size-4" />
                     </Button>

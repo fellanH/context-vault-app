@@ -264,7 +264,7 @@ export function Sync() {
                 {lastSync.errors.length > 0 && (
                   <div className="text-xs text-destructive space-y-0.5">
                     {lastSync.errors.slice(0, 5).map((err, i) => (
-                      <div key={i}>{err}</div>
+                      <div key={`${i}-${err}`}>{err}</div>
                     ))}
                   </div>
                 )}

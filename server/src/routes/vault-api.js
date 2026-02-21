@@ -517,6 +517,69 @@ export function createVaultApiRoutes(ctx, masterSecret) {
     return c.json({ imported, failed, errors: errors.slice(0, 10) });
   });
 
+  // ─── POST /api/vault/import — Single-entry import ────────────────────────────
+
+  api.post("/api/vault/import", bearerAuth(), rateLimit(), async (c) => {
+    const user = c.get("user");
+    const userCtx = await getCachedUserCtx(ctx, user, masterSecret);
+
+    const data = await c.req.json().catch(() => null);
+    if (!data)
+      return c.json({ error: "Invalid JSON body", code: "INVALID_INPUT" }, 400);
+
+    const validationError = validateEntryInput(data);
+    if (validationError) {
+      return c.json(
+        { error: validationError.error, code: "INVALID_INPUT" },
+        validationError.status,
+      );
+    }
+
+    // Entry limit enforcement
+    if (userCtx.userId) {
+      const { c: entryCount } = userCtx.db
+        .prepare(
+          "SELECT COUNT(*) as c FROM vault WHERE user_id = ? OR user_id IS NULL",
+        )
+        .get(userCtx.userId);
+      if (isOverEntryLimit(user.tier, entryCount)) {
+        return c.json(
+          {
+            error: "Entry limit reached. Upgrade to Pro.",
+            code: "LIMIT_EXCEEDED",
+          },
+          403,
+        );
+      }
+    }
+
+    try {
+      const entry = await captureAndIndex(userCtx, {
+        kind: data.kind,
+        title: data.title,
+        body: data.body,
+        meta: data.meta,
+        tags: data.tags,
+        source: data.source || "import",
+        identity_key: data.identity_key,
+        expires_at: data.expires_at,
+        userId: userCtx.userId,
+        teamId: data.team_id || null,
+      });
+
+      return c.json(
+        formatEntry(userCtx.stmts.getEntryById.get(entry.id), userCtx.decrypt),
+        201,
+      );
+    } catch (err) {
+      console.error(`[vault-api] Import entry error: ${err.message}`);
+      return c.json(
+        { error: "Failed to import entry", code: "IMPORT_FAILED" },
+        500,
+      );
+    }
+  });
+
   // NOTE: GET /api/vault/export is defined in management.js (with Pro tier check)
 
   // ─── POST /api/vault/ingest — Fetch URL and save as entry ─────────────────

@@ -135,7 +135,7 @@ export function VaultModePopover({
                 <div className="flex gap-2">
                   <input
                     type="number"
-                    placeholder="3000"
+                    placeholder="3141"
                     value={portInput}
                     onChange={(e) => setPortInput(e.target.value)}
                     onKeyDown={(e) => e.key === "Enter" && handleConnectLocal()}

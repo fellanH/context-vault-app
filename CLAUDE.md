@@ -1,5 +1,16 @@
 # Context Vault App — CLAUDE.md
 
+## Repo structure
+
+This is **not a monorepo/workspace**. Two independent packages share one git repo:
+
+| Directory                         | Role              | Deployed to |
+| --------------------------------- | ----------------- | ----------- |
+| `src/` + root `package.json`      | React frontend    | Vercel      |
+| `server/` + `server/package.json` | Hono HTTP backend | Fly.io      |
+
+`npm install` at the root installs only frontend deps. Backend deps live in `server/node_modules` (`cd server && npm install`). The two packages have separate `node_modules`, separate build pipelines, and separate deploy targets. Vercel never touches `server/`; Fly.io Docker never touches `src/`. This is intentional — not a setup error.
+
 ## Stack
 
 React 19, React Router 7, React Query, Tailwind CSS 4, shadcn/ui, Vite 6.

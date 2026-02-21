@@ -8,7 +8,7 @@ import {
 import { Label } from "../../components/ui/label";
 import { Input } from "../../components/ui/input";
 import { Switch } from "../../components/ui/switch";
-import { Copy, Check } from "lucide-react";
+import { Copy, Check, HardDrive } from "lucide-react";
 import { Button } from "../../components/ui/button";
 import { useAuth } from "../../lib/auth";
 import { useState } from "react";
@@ -16,8 +16,9 @@ import { toast } from "sonner";
 
 export function Account() {
   const { theme, setTheme } = useTheme();
-  const { user } = useAuth();
+  const { user, vaultMode } = useAuth();
   const [copied, setCopied] = useState(false);
+  const isLocalMode = vaultMode === "local";
 
   const copyUserId = async () => {
     if (!user) return;
@@ -37,6 +38,19 @@ export function Account() {
           Your profile and preferences.
         </p>
       </div>
+
+      {isLocalMode && (
+        <div className="flex items-start gap-3 rounded-lg border border-border bg-muted/50 px-4 py-3 text-sm">
+          <HardDrive className="size-4 mt-0.5 shrink-0 text-muted-foreground" />
+          <div>
+            <p className="font-medium">Local mode</p>
+            <p className="text-muted-foreground text-xs mt-0.5">
+              Running against your local vault. No cloud account is associated.
+              Use Sync to link a hosted account.
+            </p>
+          </div>
+        </div>
+      )}
 
       <Card>
         <CardHeader className="pb-3">

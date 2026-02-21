@@ -19,6 +19,7 @@ import {
   AlertCircle,
 } from "lucide-react";
 import { toast } from "sonner";
+import { api, ApiError } from "../../lib/api";
 
 interface LinkStatus {
   linked: boolean;
@@ -35,33 +36,7 @@ interface SyncResult {
   errors: string[];
 }
 
-function useApi() {
-  const base = window.location.origin;
-  return {
-    async getLinkStatus(): Promise<LinkStatus> {
-      const res = await fetch(`${base}/api/local/link`);
-      return res.json();
-    },
-    async link(
-      apiKey: string,
-      hostedUrl?: string,
-    ): Promise<LinkStatus & { error?: string }> {
-      const res = await fetch(`${base}/api/local/link`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ apiKey, hostedUrl }),
-      });
-      return res.json();
-    },
-    async sync(): Promise<SyncResult & { error?: string }> {
-      const res = await fetch(`${base}/api/local/sync`, { method: "POST" });
-      return res.json();
-    },
-  };
-}
-
 export function Sync() {
-  const api = useApi();
   const [status, setStatus] = useState<LinkStatus | null>(null);
   const [loading, setLoading] = useState(true);
   const [apiKey, setApiKey] = useState("");
@@ -72,7 +47,7 @@ export function Sync() {
 
   useEffect(() => {
     api
-      .getLinkStatus()
+      .get<LinkStatus>("/local/link")
       .then(setStatus)
       .catch(() => setStatus({ linked: false }))
       .finally(() => setLoading(false));
@@ -82,25 +57,21 @@ export function Sync() {
     if (!apiKey.trim()) return;
     setLinking(true);
     try {
-      const result = await api.link(
-        apiKey.trim(),
-        hostedUrl.trim() || undefined,
-      );
-      if (result.error) {
-        toast.error(result.error);
-      } else {
-        setStatus({
-          linked: true,
-          email: result.email,
-          tier: result.tier,
-          hostedUrl: hostedUrl.trim() || undefined,
-          linkedAt: new Date().toISOString(),
-        });
-        setApiKey("");
-        toast.success(`Linked to ${result.email}`);
-      }
-    } catch {
-      toast.error("Failed to link account");
+      const result = await api.post<LinkStatus>("/local/link", {
+        apiKey: apiKey.trim(),
+        hostedUrl: hostedUrl.trim() || undefined,
+      });
+      setStatus({
+        linked: true,
+        email: result.email,
+        tier: result.tier,
+        hostedUrl: hostedUrl.trim() || undefined,
+        linkedAt: new Date().toISOString(),
+      });
+      setApiKey("");
+      toast.success(`Linked to ${result.email}`);
+    } catch (e) {
+      toast.error(e instanceof ApiError ? e.message : "Failed to link account");
     } finally {
       setLinking(false);
     }
@@ -108,7 +79,7 @@ export function Sync() {
 
   const handleUnlink = async () => {
     try {
-      await api.link("", "");
+      await api.post("/local/link", { apiKey: "" });
       setStatus({ linked: false });
       toast.success("Account unlinked");
     } catch {
@@ -119,17 +90,11 @@ export function Sync() {
   const handleSync = async () => {
     setSyncing(true);
     try {
-      const result = await api.sync();
-      if (result.error) {
-        toast.error(result.error);
-      } else {
-        setLastSync(result);
-        toast.success(
-          `Synced: ${result.pushed} pushed, ${result.pulled} pulled`,
-        );
-      }
-    } catch {
-      toast.error("Sync failed");
+      const result = await api.post<SyncResult>("/local/sync");
+      setLastSync(result);
+      toast.success(`Synced: ${result.pushed} pushed, ${result.pulled} pulled`);
+    } catch (e) {
+      toast.error(e instanceof ApiError ? e.message : "Sync failed");
     } finally {
       setSyncing(false);
     }

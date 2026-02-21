@@ -18,7 +18,7 @@ export function Login() {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const isLocal = isLocalConnection();
-  const [mode, setMode] = useState<VaultMode>(isLocal ? "hosted" : "hosted");
+  const [mode, setMode] = useState<VaultMode>("hosted");
   const [apiKey, setApiKey] = useState("");
   const [vaultDir, setVaultDir] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);

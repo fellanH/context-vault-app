@@ -76,7 +76,10 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
       // use statusText fallback
     }
 
-    if (res.status === 401 && token) {
+    // Only clear the stored token if it still matches the one that was
+    // rejected. A concurrent register() or loginWithApiKey() may have already
+    // stored a fresh token, and we must not wipe it.
+    if (res.status === 401 && token && getStoredToken() === token) {
       clearStoredToken();
     }
 

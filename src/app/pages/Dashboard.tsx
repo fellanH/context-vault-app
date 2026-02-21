@@ -18,7 +18,6 @@ import {
   resetOnboarding,
 } from "../lib/onboarding";
 import { formatMegabytes, formatRelativeTime } from "../lib/format";
-import { uploadLocalVault } from "../lib/api";
 import {
   FileText,
   HardDrive,
@@ -31,7 +30,6 @@ import {
   Copy,
   Check,
   ExternalLink,
-  Cloud,
   Loader2,
   CircleCheck,
   Link2,
@@ -40,19 +38,16 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 
-const API_URL = import.meta.env.VITE_API_URL || "/api";
-
 const STEP_ICONS: Record<string, React.ElementType> = {
   "sign-in": UserPlus,
   "connect-folder": FolderOpen,
   "connect-tools": Link2,
   "first-entry": Plus,
-  "go-hosted": Cloud,
   "install-extension": ExternalLink,
 };
 
 export function Dashboard() {
-  const { user, isAuthenticated, vaultMode } = useAuth();
+  const { user, isAuthenticated } = useAuth();
   const navigate = useNavigate();
   const { data: entriesData, isLoading: entriesLoading } = useEntries({
     limit: 10,
@@ -61,12 +56,10 @@ export function Dashboard() {
   const { data: apiKeys } = useApiKeys();
 
   const entriesUsed = usage?.entries.used ?? 0;
-  const isLocalMode = vaultMode === "local";
   const hasApiKey = (apiKeys?.length ?? 0) > 0;
   const hasMcpActivity = (apiKeys ?? []).some((key) => Boolean(key.lastUsedAt));
   const steps = getOnboardingSteps({
     isAuthenticated,
-    vaultMode,
     entriesUsed,
     hasApiKey,
     hasMcpActivity,
@@ -75,25 +68,17 @@ export function Dashboard() {
     () => !isOnboardingDismissed(),
   );
   const [copiedCmd, setCopiedCmd] = useState(false);
-  const [uploadDismissed, setUploadDismissed] = useState(
-    () => localStorage.getItem("context-vault-upload-dismissed") === "true",
-  );
-  const [uploading, setUploading] = useState(false);
 
-  const allComplete = steps
-    .filter((s) => s.id !== "go-hosted")
-    .every((s) => s.completed);
+  const allComplete = steps.every((s) => s.completed);
   const completedCount = steps.filter((s) => s.completed).length;
-  const totalRequired = steps.filter((s) => s.id !== "go-hosted").length;
+  const totalRequired = steps.length;
 
   const handleDismiss = () => {
     dismissOnboarding();
     setShowOnboarding(false);
   };
 
-  const connectCommand = isLocalMode
-    ? "npx context-vault connect"
-    : "npx context-vault connect --key YOUR_API_KEY";
+  const connectCommand = "npx context-vault connect --key YOUR_API_KEY";
 
   const copyConnectCommand = async () => {
     await navigator.clipboard.writeText(connectCommand);
@@ -198,7 +183,6 @@ export function Dashboard() {
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
               {steps.map((step) => {
                 const Icon = STEP_ICONS[step.id] || FileText;
-                const isOptional = step.id === "go-hosted";
 
                 return (
                   <div
@@ -223,11 +207,6 @@ export function Dashboard() {
                           <Icon className="size-4" />
                         )}
                       </div>
-                      {isOptional && (
-                        <Badge variant="outline" className="text-[10px]">
-                          Optional
-                        </Badge>
-                      )}
                     </div>
                     <div>
                       <p
@@ -291,86 +270,6 @@ export function Dashboard() {
             Show setup
           </Button>
         </div>
-      )}
-
-      {/* Upload prompt — local user who now has a hosted account */}
-      {isLocalMode && !uploadDismissed && entriesUsed > 0 && (
-        <Card className="border-primary/20 bg-primary/5">
-          <CardContent className="flex items-center justify-between py-4">
-            <div className="flex items-center gap-3">
-              <Cloud className="size-5 text-primary shrink-0" />
-              <div>
-                <p className="text-sm font-medium">
-                  Upload your local vault to the cloud?
-                </p>
-                <p className="text-xs text-muted-foreground">
-                  Sync {entriesUsed} {entriesUsed === 1 ? "entry" : "entries"}{" "}
-                  to your hosted vault for backup and cross-device access.
-                </p>
-              </div>
-            </div>
-            <div className="flex items-center gap-2 shrink-0 ml-4">
-              <Button
-                variant="default"
-                size="sm"
-                disabled={uploading}
-                onClick={async () => {
-                  const key = window.prompt(
-                    "Enter your hosted API key (cv_...):",
-                  );
-                  if (!key?.startsWith("cv_")) return;
-                  setUploading(true);
-                  try {
-                    const result = await uploadLocalVault(key);
-                    toast.success(`Uploaded ${result.imported} entries`);
-                    if (result.failed > 0) {
-                      toast.warning(
-                        `${result.failed} entries failed to upload`,
-                      );
-                    }
-                    setUploadDismissed(true);
-                    localStorage.setItem(
-                      "context-vault-upload-dismissed",
-                      "true",
-                    );
-                  } catch {
-                    toast.error(
-                      "Upload failed. Check your API key and try again.",
-                    );
-                  } finally {
-                    setUploading(false);
-                  }
-                }}
-              >
-                {uploading ? (
-                  <>
-                    <Loader2 className="size-3.5 mr-1.5 animate-spin" />
-                    Uploading...
-                  </>
-                ) : (
-                  <>
-                    <Upload className="size-3.5 mr-1.5" />
-                    Upload
-                  </>
-                )}
-              </Button>
-              <Button
-                variant="ghost"
-                size="icon"
-                className="size-7"
-                onClick={() => {
-                  setUploadDismissed(true);
-                  localStorage.setItem(
-                    "context-vault-upload-dismissed",
-                    "true",
-                  );
-                }}
-              >
-                <X className="size-3.5" />
-              </Button>
-            </div>
-          </CardContent>
-        </Card>
       )}
 
       {/* Usage Overview */}

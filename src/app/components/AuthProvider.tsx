@@ -6,79 +6,38 @@ import {
   setStoredToken,
   clearStoredToken,
 } from "../lib/auth";
-import {
-  api,
-  ApiError,
-  isLocalConnection,
-  getLocalPort,
-  autoDiscoverLocalPort,
-} from "../lib/api";
-import { toast } from "sonner";
+import { api, ApiError } from "../lib/api";
 import { transformUser } from "../lib/types";
-import type {
-  User,
-  VaultMode,
-  ApiUserResponse,
-  ApiRegisterResponse,
-} from "../lib/types";
+import type { User, ApiUserResponse, ApiRegisterResponse } from "../lib/types";
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [token, setToken] = useState<string | null>(getStoredToken);
   const [user, setUser] = useState<User | null>(null);
   const [isLoading, setIsLoading] = useState(true);
-  const [localServerDown, setLocalServerDown] = useState(false);
 
-  // On mount: revalidate stored token, or detect local mode (no auth required)
+  // On mount: revalidate stored token
   useEffect(() => {
-    async function init() {
-      const storedToken = getStoredToken();
+    const storedToken = getStoredToken();
 
-      // Auto-discover local vault if no stored token and not already in local mode
-      let autoDiscovered = false;
-      if (!storedToken && !isLocalConnection()) {
-        const port = await autoDiscoverLocalPort();
-        if (port) {
-          autoDiscovered = true;
-          // getApiBase() now routes to localhost:port
-        }
-      }
-
-      // When opened via ?local=PORT or auto-discovered, API calls go to localhost
-      // Try /api/me — works without token in local mode
-      api
-        .get<ApiUserResponse>("/me")
-        .then((raw) => {
-          const u = transformUser(raw);
-          setUser(u);
-          // Local mode: no token needed; use "local" so isAuthenticated is true
-          if (!storedToken && raw.userId === "local") {
-            setStoredToken("local");
-            setToken("local");
-            if (autoDiscovered) {
-              toast.success("Connected to local vault");
-            }
-          } else if (storedToken) {
-            setToken(storedToken);
-          } else {
-            setToken("local");
-          }
-        })
-        .catch((err) => {
-          // If we're in local-via-hosted mode and the local server isn't running,
-          // show a helpful message instead of redirecting to login
-          if (isLocalConnection() && !(err instanceof ApiError)) {
-            setLocalServerDown(true);
-            return;
-          }
-          // Token is invalid — request() already cleared localStorage on 401.
-          // Do NOT wipe token/user state here: loginWithApiKey may have raced
-          // and established a valid session concurrently (OAuth callback flow).
-          // isAuthenticated stays false naturally because user is still null.
-        })
-        .finally(() => setIsLoading(false));
+    if (!storedToken) {
+      setIsLoading(false);
+      return;
     }
 
-    init();
+    api
+      .get<ApiUserResponse>("/me")
+      .then((raw) => {
+        setUser(transformUser(raw));
+        setToken(storedToken);
+      })
+      .catch((err) => {
+        // Token invalid — request() already cleared localStorage on 401.
+        // Don't wipe state: loginWithApiKey may be racing (OAuth callback).
+        if (!(err instanceof ApiError) || err.status !== 401) {
+          // Non-auth error: silently ignore, user stays unauthenticated
+        }
+      })
+      .finally(() => setIsLoading(false));
   }, []);
 
   const loginWithApiKey = useCallback(async (key: string) => {
@@ -95,29 +54,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
   }, []);
 
-  const loginWithLocalVault = useCallback(async (vaultDir: string) => {
-    if (vaultDir.trim()) {
-      const raw = await api.post<ApiUserResponse>("/local/connect", {
-        vaultDir: vaultDir.trim(),
-      });
-      setStoredToken("local");
-      setToken("local");
-      setUser(transformUser(raw));
-    } else {
-      const raw = await api.get<ApiUserResponse>("/me");
-      setStoredToken("local");
-      setToken("local");
-      setUser(transformUser(raw));
-    }
-  }, []);
-
   const register = useCallback(async (email: string, name?: string) => {
     const raw = await api.post<ApiRegisterResponse>("/register", {
       email,
       name,
     });
 
-    // Store the API key as auth token
     setStoredToken(raw.apiKey.key);
     setToken(raw.apiKey.key);
     setUser({
@@ -137,32 +79,17 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setUser(null);
   }, []);
 
-  const vaultMode: VaultMode = user?.id === "local" ? "local" : "hosted";
-
   const value: AuthState = useMemo(
     () => ({
       user,
       token,
-      vaultMode,
       isAuthenticated: !!token && !!user,
       isLoading,
-      localServerDown,
       loginWithApiKey,
-      loginWithLocalVault,
       register,
       logout,
     }),
-    [
-      user,
-      token,
-      vaultMode,
-      isLoading,
-      localServerDown,
-      loginWithApiKey,
-      loginWithLocalVault,
-      register,
-      logout,
-    ],
+    [user, token, isLoading, loginWithApiKey, register, logout],
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

@@ -1,15 +1,12 @@
 import { createContext, useContext } from "react";
-import type { User, VaultMode } from "./types";
+import type { User } from "./types";
 
 export interface AuthState {
   user: User | null;
   token: string | null;
-  vaultMode: VaultMode;
   isAuthenticated: boolean;
   isLoading: boolean;
-  localServerDown: boolean;
   loginWithApiKey: (key: string) => Promise<void>;
-  loginWithLocalVault: (vaultDir: string) => Promise<void>;
   register: (email: string, name?: string) => Promise<{ apiKey: string }>;
   logout: () => void;
 }

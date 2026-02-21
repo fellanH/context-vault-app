@@ -11,25 +11,18 @@ import { Label } from "../../components/ui/label";
 import { Badge } from "../../components/ui/badge";
 import { Copy, Check, Plus, Trash2, Loader2 } from "lucide-react";
 import { useApiKeys, useCreateApiKey, useDeleteApiKey } from "../../lib/hooks";
-import { useAuth } from "../../lib/auth";
 import { toast } from "sonner";
 
 export function ApiKeys() {
-  const { user } = useAuth();
   const { data: keys, isLoading } = useApiKeys();
   const createMutation = useCreateApiKey();
   const deleteMutation = useDeleteApiKey();
-  const isLocalMode = user?.id === "local";
   const [newKeyName, setNewKeyName] = useState("");
   const [showCreate, setShowCreate] = useState(false);
   const [copied, setCopied] = useState<string | null>(null);
   const [newlyCreatedKey, setNewlyCreatedKey] = useState<string | null>(null);
 
   const createKey = () => {
-    if (isLocalMode) {
-      toast.info("Local mode does not use hosted API keys");
-      return;
-    }
     if (!newKeyName.trim()) return;
     createMutation.mutate(newKeyName.trim(), {
       onSuccess: (data) => {
@@ -45,10 +38,6 @@ export function ApiKeys() {
   };
 
   const deleteKey = (id: string) => {
-    if (isLocalMode) {
-      toast.info("Local mode does not use hosted API keys");
-      return;
-    }
     deleteMutation.mutate(id, {
       onSuccess: () => {
         toast.success("API key deleted");
@@ -90,13 +79,12 @@ export function ApiKeys() {
       <div>
         <h1 className="text-2xl font-bold">API Keys</h1>
         <p className="text-sm text-muted-foreground mt-1">
-          {isLocalMode
-            ? "Local mode connects directly to your vault and does not require hosted API keys."
-            : "Manage your API keys for connecting Context Vault to Claude Code and other tools."}
+          Manage your API keys for connecting Context Vault to Claude Code and
+          other tools.
         </p>
       </div>
 
-      {!isLocalMode && newlyCreatedKey && (
+      {newlyCreatedKey && (
         <Card className="border-green-500/50 bg-green-50 dark:bg-green-950/20">
           <CardContent className="pt-4 space-y-2">
             <p className="text-sm font-medium text-green-700 dark:text-green-400">
@@ -134,19 +122,17 @@ export function ApiKeys() {
       <Card>
         <CardHeader className="flex flex-row items-center justify-between pb-3">
           <CardTitle className="text-base">Your Keys</CardTitle>
-          {!isLocalMode && (
-            <Button
-              size="sm"
-              className="gap-1.5"
-              onClick={() => setShowCreate(true)}
-            >
-              <Plus className="size-3.5" />
-              Create New Key
-            </Button>
-          )}
+          <Button
+            size="sm"
+            className="gap-1.5"
+            onClick={() => setShowCreate(true)}
+          >
+            <Plus className="size-3.5" />
+            Create New Key
+          </Button>
         </CardHeader>
         <CardContent>
-          {!isLocalMode && showCreate && (
+          {showCreate && (
             <div className="flex items-end gap-2 mb-4 pb-4 border-b border-border">
               <div className="flex-1 space-y-1.5">
                 <Label htmlFor="keyName" className="text-xs">
@@ -193,9 +179,7 @@ export function ApiKeys() {
             </div>
           ) : !keys || keys.length === 0 ? (
             <p className="text-sm text-muted-foreground text-center py-4">
-              {isLocalMode
-                ? "Local mode does not use hosted API keys."
-                : "No API keys yet. Create one to get started."}
+              No API keys yet. Create one to get started.
             </p>
           ) : (
             <div className="space-y-2">
@@ -220,21 +204,19 @@ export function ApiKeys() {
                         : "Never used"}
                     </Badge>
                   </div>
-                  {!isLocalMode && (
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      className="size-8 text-muted-foreground hover:text-destructive"
-                      onClick={() => deleteKey(key.id)}
-                      disabled={deleteMutation.isPending}
-                    >
-                      {deleteMutation.isPending ? (
-                        <Loader2 className="size-3.5 animate-spin" />
-                      ) : (
-                        <Trash2 className="size-3.5" />
-                      )}
-                    </Button>
-                  )}
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="size-8 text-muted-foreground hover:text-destructive"
+                    onClick={() => deleteKey(key.id)}
+                    disabled={deleteMutation.isPending}
+                  >
+                    {deleteMutation.isPending ? (
+                      <Loader2 className="size-3.5 animate-spin" />
+                    ) : (
+                      <Trash2 className="size-3.5" />
+                    )}
+                  </Button>
                 </div>
               ))}
             </div>
@@ -247,25 +229,12 @@ export function ApiKeys() {
           <CardTitle className="text-base">Setup Guide</CardTitle>
         </CardHeader>
         <CardContent className="space-y-3">
-          {isLocalMode ? (
-            <>
-              <p className="text-sm text-muted-foreground">
-                Local mode runs on your machine and does not require a hosted
-                API key.
-              </p>
-              <pre className="bg-muted p-4 rounded-lg text-xs font-mono overflow-x-auto">
-                {`context-vault ui`}
-              </pre>
-            </>
-          ) : (
-            <>
-              <p className="text-sm text-muted-foreground">
-                Add this configuration to your Claude Code MCP settings to
-                connect:
-              </p>
-              <div className="relative">
-                <pre className="bg-muted p-4 rounded-lg text-xs font-mono overflow-x-auto">
-                  {`{
+          <p className="text-sm text-muted-foreground">
+            Add this configuration to your Claude Code MCP settings to connect:
+          </p>
+          <div className="relative">
+            <pre className="bg-muted p-4 rounded-lg text-xs font-mono overflow-x-auto">
+              {`{
   "mcpServers": {
     "context-vault": {
       "url": "https://api.context-vault.com/mcp",
@@ -275,23 +244,21 @@ export function ApiKeys() {
     }
   }
 }`}
-                </pre>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  className="absolute top-2 right-2 gap-1.5 text-xs"
-                  onClick={copyConfig}
-                >
-                  {copied === "Config" ? (
-                    <Check className="size-3" />
-                  ) : (
-                    <Copy className="size-3" />
-                  )}
-                  Copy
-                </Button>
-              </div>
-            </>
-          )}
+            </pre>
+            <Button
+              variant="outline"
+              size="sm"
+              className="absolute top-2 right-2 gap-1.5 text-xs"
+              onClick={copyConfig}
+            >
+              {copied === "Config" ? (
+                <Check className="size-3" />
+              ) : (
+                <Copy className="size-3" />
+              )}
+              Copy
+            </Button>
+          </div>
         </CardContent>
       </Card>
     </div>

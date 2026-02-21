@@ -16,8 +16,6 @@ import {
   Loader2,
   ExternalLink,
   Plus,
-  RefreshCw,
-  Lock,
 } from "lucide-react";
 import { useTheme } from "next-themes";
 import { Button } from "./ui/button";
@@ -28,13 +26,11 @@ import { useUsage, useVaultStatus, useTeams } from "../lib/hooks";
 import { useState, useEffect, useRef } from "react";
 import { QuickSearch } from "./QuickSearch";
 import { VaultModePopover } from "./VaultModePopover";
-import { Tooltip, TooltipTrigger, TooltipContent } from "./ui/tooltip";
 
 interface NavItem {
   path: string;
   label: string;
   icon: React.ComponentType<{ className?: string }>;
-  hostedOnly?: boolean;
 }
 
 const mainItems: NavItem[] = [
@@ -49,21 +45,10 @@ const vaultItems: NavItem[] = [
 ];
 
 const settingsItems: NavItem[] = [
-  {
-    path: "/settings/api-keys",
-    label: "API Keys",
-    icon: Key,
-    hostedOnly: true,
-  },
-  {
-    path: "/settings/billing",
-    label: "Billing",
-    icon: CreditCard,
-    hostedOnly: true,
-  },
+  { path: "/settings/api-keys", label: "API Keys", icon: Key },
+  { path: "/settings/billing", label: "Billing", icon: CreditCard },
   { path: "/settings/data", label: "Data", icon: Database },
   { path: "/settings/account", label: "Account", icon: User },
-  { path: "/settings/sync", label: "Sync", icon: RefreshCw },
 ];
 
 function getPageTitle(pathname: string): string {
@@ -81,14 +66,7 @@ export function RootLayout() {
   const location = useLocation();
   const navigate = useNavigate();
   const { theme, setTheme } = useTheme();
-  const {
-    user,
-    isAuthenticated,
-    isLoading: authLoading,
-    localServerDown,
-    logout,
-    vaultMode,
-  } = useAuth();
+  const { user, isAuthenticated, isLoading: authLoading, logout } = useAuth();
   const { data: usage, isLoading: usageLoading } = useUsage();
   const vaultStatus = useVaultStatus({
     enabled: isAuthenticated,
@@ -117,31 +95,6 @@ export function RootLayout() {
     );
   }
 
-  // Local server not running — show helpful message
-  if (localServerDown) {
-    return (
-      <div className="flex h-screen items-center justify-center bg-background">
-        <div className="text-center space-y-4 max-w-sm">
-          <Database className="size-10 mx-auto text-muted-foreground" />
-          <h2 className="text-lg font-semibold">Local server not running</h2>
-          <p className="text-sm text-muted-foreground">
-            Start the local vault server to connect:
-          </p>
-          <code className="block bg-muted rounded-md px-4 py-2 text-sm font-mono">
-            context-vault ui
-          </code>
-          <div className="pt-2">
-            <Link to="/login">
-              <Button variant="outline" size="sm">
-                Use hosted mode instead
-              </Button>
-            </Link>
-          </div>
-        </div>
-      </div>
-    );
-  }
-
   // Not authenticated — redirect to login
   if (!isAuthenticated) {
     return <Navigate to="/login" replace />;
@@ -165,7 +118,7 @@ export function RootLayout() {
         .slice(0, 2)
         .toUpperCase()
     : user?.email?.[0]?.toUpperCase() || "?";
-  const isLocalMode = vaultMode === "local";
+
   const connectionState = vaultStatus.isError
     ? "Disconnected"
     : vaultStatus.data?.health === "degraded"
@@ -200,60 +153,33 @@ export function RootLayout() {
             <div className="px-2 py-1.5 text-xs font-medium text-muted-foreground">
               Teams
             </div>
-            {isLocalMode ? (
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <div className="opacity-50 cursor-not-allowed">
-                    <Button
-                      variant="ghost"
-                      className="w-full justify-start text-sm pointer-events-none"
-                      size="sm"
-                      disabled
-                    >
-                      <Users className="size-4 mr-2" />
-                      Teams
-                      <Lock className="size-3 ml-auto" />
-                    </Button>
-                  </div>
-                </TooltipTrigger>
-                <TooltipContent side="right">
-                  Available in hosted mode
-                </TooltipContent>
-              </Tooltip>
-            ) : (
-              <>
-                {teams?.map((team) => (
-                  <Link key={team.id} to={`/team/${team.id}`}>
-                    <Button
-                      variant={
-                        isActive(`/team/${team.id}`) ? "secondary" : "ghost"
-                      }
-                      className="w-full justify-start text-sm"
-                      size="sm"
-                    >
-                      <Users className="size-4 mr-2" />
-                      {team.name}
-                    </Button>
-                  </Link>
-                ))}
-                <Link to="/team/new">
-                  <Button
-                    variant={isActive("/team/new") ? "secondary" : "ghost"}
-                    className="w-full justify-start text-sm text-muted-foreground"
-                    size="sm"
-                  >
-                    <Plus className="size-4 mr-2" />
-                    New Team
-                  </Button>
-                </Link>
-              </>
-            )}
+            {teams?.map((team) => (
+              <Link key={team.id} to={`/team/${team.id}`}>
+                <Button
+                  variant={isActive(`/team/${team.id}`) ? "secondary" : "ghost"}
+                  className="w-full justify-start text-sm"
+                  size="sm"
+                >
+                  <Users className="size-4 mr-2" />
+                  {team.name}
+                </Button>
+              </Link>
+            ))}
+            <Link to="/team/new">
+              <Button
+                variant={isActive("/team/new") ? "secondary" : "ghost"}
+                className="w-full justify-start text-sm text-muted-foreground"
+                size="sm"
+              >
+                <Plus className="size-4 mr-2" />
+                New Team
+              </Button>
+            </Link>
           </div>
           <NavSection
             label="Settings"
             items={settingsItems}
             isActive={isActive}
-            isLocalMode={isLocalMode}
           />
         </nav>
 
@@ -296,13 +222,13 @@ export function RootLayout() {
               )}
               <div className="flex items-center justify-between mt-1">
                 {user?.tier && <TierBadge tier={user.tier} />}
-                <Link to={isLocalMode ? "/register" : "/settings/billing"}>
+                <Link to="/settings/billing">
                   <Button
                     variant="ghost"
                     size="sm"
                     className="text-xs h-6 px-2"
                   >
-                    {isLocalMode ? "Go Hosted" : "Upgrade"}
+                    Upgrade
                   </Button>
                 </Link>
               </div>
@@ -320,7 +246,6 @@ export function RootLayout() {
               {getPageTitle(location.pathname)}
             </h2>
             <VaultModePopover
-              isLocalMode={isLocalMode}
               connectionState={connectionState}
               connectionBadgeClass={connectionBadgeClass}
             />
@@ -384,16 +309,14 @@ export function RootLayout() {
                     <User className="size-3.5" />
                     Account
                   </Link>
-                  {!isLocalMode && (
-                    <Link
-                      to="/settings/api-keys"
-                      className="flex items-center gap-2 px-3 py-2 text-sm hover:bg-accent transition-colors"
-                      onClick={() => setAvatarOpen(false)}
-                    >
-                      <Key className="size-3.5" />
-                      API Keys
-                    </Link>
-                  )}
+                  <Link
+                    to="/settings/api-keys"
+                    className="flex items-center gap-2 px-3 py-2 text-sm hover:bg-accent transition-colors"
+                    onClick={() => setAvatarOpen(false)}
+                  >
+                    <Key className="size-3.5" />
+                    API Keys
+                  </Link>
                   <button
                     type="button"
                     onClick={handleLogout}
@@ -424,12 +347,10 @@ function NavSection({
   label,
   items,
   isActive,
-  isLocalMode,
 }: {
   label: string;
   items: NavItem[];
   isActive: (path: string) => boolean;
-  isLocalMode?: boolean;
 }) {
   return (
     <div className="space-y-0.5">
@@ -438,32 +359,6 @@ function NavSection({
       </div>
       {items.map((item) => {
         const Icon = item.icon;
-        const isDisabled = isLocalMode && item.hostedOnly;
-
-        if (isDisabled) {
-          return (
-            <Tooltip key={item.path}>
-              <TooltipTrigger asChild>
-                <div className="opacity-50 cursor-not-allowed">
-                  <Button
-                    variant="ghost"
-                    className="w-full justify-start text-sm pointer-events-none"
-                    size="sm"
-                    disabled
-                  >
-                    <Icon className="size-4 mr-2" />
-                    {item.label}
-                    <Lock className="size-3 ml-auto" />
-                  </Button>
-                </div>
-              </TooltipTrigger>
-              <TooltipContent side="right">
-                Available in hosted mode
-              </TooltipContent>
-            </Tooltip>
-          );
-        }
-
         return (
           <Link key={item.path} to={item.path}>
             <Button

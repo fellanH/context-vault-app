@@ -4,7 +4,6 @@ export type EntityKind = "project" | "contact" | "tool";
 export type EventKind = "session" | "log";
 
 export type BillingTier = "free" | "pro" | "team";
-export type VaultMode = "local" | "hosted";
 
 // ─── Frontend types (used by components) ─────────────────────────────────────
 

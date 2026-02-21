@@ -2,7 +2,11 @@ import { useState, useRef, useEffect } from "react";
 import { useNavigate } from "react-router";
 import { Info } from "lucide-react";
 import { useAuth } from "../lib/auth";
-import { clearLocalConnection, getLocalPort } from "../lib/api";
+import {
+  clearLocalConnection,
+  getLocalPort,
+  autoDiscoverLocalPort,
+} from "../lib/api";
 
 interface VaultModePopoverProps {
   isLocalMode: boolean;
@@ -38,9 +42,17 @@ export function VaultModePopover({
     return () => document.removeEventListener("mousedown", handleClick);
   }, []);
 
-  const handleConnectLocal = () => {
+  const handleConnectLocal = async () => {
     const p = parseInt(portInput, 10);
-    if (isNaN(p) || p < 1 || p > 65535) return;
+    if (isNaN(p) || p < 1 || p > 65535) {
+      // Empty/invalid port — try auto-discovery as fallback
+      const discovered = await autoDiscoverLocalPort();
+      if (!discovered) return;
+      // Port is now set in session/localStorage by autoDiscoverLocalPort
+      logout();
+      window.location.reload();
+      return;
+    }
     sessionStorage.setItem(LOCAL_PORT_KEY, String(p));
     logout();
     window.location.reload();

@@ -6,7 +6,14 @@ import {
   setStoredToken,
   clearStoredToken,
 } from "../lib/auth";
-import { api, ApiError, isLocalConnection, getLocalPort } from "../lib/api";
+import {
+  api,
+  ApiError,
+  isLocalConnection,
+  getLocalPort,
+  autoDiscoverLocalPort,
+} from "../lib/api";
+import { toast } from "sonner";
 import { transformUser } from "../lib/types";
 import type {
   User,
@@ -23,38 +30,55 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   // On mount: revalidate stored token, or detect local mode (no auth required)
   useEffect(() => {
-    const storedToken = getStoredToken();
+    async function init() {
+      const storedToken = getStoredToken();
 
-    // When opened via ?local=PORT, API calls already go to localhost
-    // Try /api/me — works without token in local mode
-    api
-      .get<ApiUserResponse>("/me")
-      .then((raw) => {
-        const u = transformUser(raw);
-        setUser(u);
-        // Local mode: no token needed; use "local" so isAuthenticated is true
-        if (!storedToken && raw.userId === "local") {
-          setStoredToken("local");
-          setToken("local");
-        } else if (storedToken) {
-          setToken(storedToken);
-        } else {
-          setToken("local");
+      // Auto-discover local vault if no stored token and not already in local mode
+      let autoDiscovered = false;
+      if (!storedToken && !isLocalConnection()) {
+        const port = await autoDiscoverLocalPort();
+        if (port) {
+          autoDiscovered = true;
+          // getApiBase() now routes to localhost:port
         }
-      })
-      .catch((err) => {
-        // If we're in local-via-hosted mode and the local server isn't running,
-        // show a helpful message instead of redirecting to login
-        if (isLocalConnection() && !(err instanceof ApiError)) {
-          setLocalServerDown(true);
-          return;
-        }
-        // Token is invalid — request() already cleared localStorage on 401.
-        // Do NOT wipe token/user state here: loginWithApiKey may have raced
-        // and established a valid session concurrently (OAuth callback flow).
-        // isAuthenticated stays false naturally because user is still null.
-      })
-      .finally(() => setIsLoading(false));
+      }
+
+      // When opened via ?local=PORT or auto-discovered, API calls go to localhost
+      // Try /api/me — works without token in local mode
+      api
+        .get<ApiUserResponse>("/me")
+        .then((raw) => {
+          const u = transformUser(raw);
+          setUser(u);
+          // Local mode: no token needed; use "local" so isAuthenticated is true
+          if (!storedToken && raw.userId === "local") {
+            setStoredToken("local");
+            setToken("local");
+            if (autoDiscovered) {
+              toast.success("Connected to local vault");
+            }
+          } else if (storedToken) {
+            setToken(storedToken);
+          } else {
+            setToken("local");
+          }
+        })
+        .catch((err) => {
+          // If we're in local-via-hosted mode and the local server isn't running,
+          // show a helpful message instead of redirecting to login
+          if (isLocalConnection() && !(err instanceof ApiError)) {
+            setLocalServerDown(true);
+            return;
+          }
+          // Token is invalid — request() already cleared localStorage on 401.
+          // Do NOT wipe token/user state here: loginWithApiKey may have raced
+          // and established a valid session concurrently (OAuth callback flow).
+          // isAuthenticated stays false naturally because user is still null.
+        })
+        .finally(() => setIsLoading(false));
+    }
+
+    init();
   }, []);
 
   const loginWithApiKey = useCallback(async (key: string) => {

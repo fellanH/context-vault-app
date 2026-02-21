@@ -1,14 +1,14 @@
 import { useState, useEffect } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router";
 import { useAuth } from "../lib/auth";
-import { ApiError, isLocalConnection, api } from "../lib/api";
+import { ApiError, isLocalConnection, autoDiscoverLocalPort } from "../lib/api";
 import type { VaultMode } from "../lib/types";
 import { Button } from "../components/ui/button";
 import { Input } from "../components/ui/input";
 import { Label } from "../components/ui/label";
 import { Card, CardContent } from "../components/ui/card";
 import { UpgradeToHostedDialog } from "../components/UpgradeToHostedDialog";
-import { Key, Loader2, HardDrive, Cloud, ArrowRight } from "lucide-react";
+import { Key, Loader2, HardDrive, Cloud } from "lucide-react";
 import { toast } from "sonner";
 
 const API_URL = import.meta.env.VITE_API_URL || "/api";
@@ -20,10 +20,9 @@ export function Login() {
   const isLocal = isLocalConnection();
   const [mode, setMode] = useState<VaultMode>("hosted");
   const [apiKey, setApiKey] = useState("");
-  const [vaultDir, setVaultDir] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [localSubmitting, setLocalSubmitting] = useState(false);
-  const [browsing, setBrowsing] = useState(false);
+  const [localConnecting, setLocalConnecting] = useState(false);
+  const [localError, setLocalError] = useState<string | null>(null);
 
   // Upgrade dialog state
   const [showUpgrade, setShowUpgrade] = useState(false);
@@ -87,42 +86,24 @@ export function Login() {
     }
   };
 
-  const handleLocalSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (localSubmitting) return;
-    setLocalSubmitting(true);
+  const handleConnectLocal = async () => {
+    if (localConnecting) return;
+    setLocalConnecting(true);
+    setLocalError(null);
     try {
-      await loginWithLocalVault(vaultDir.trim());
-      toast.success("Connected to local vault");
-      navigate("/");
-    } catch (err) {
-      if (err instanceof ApiError) {
-        if (err.status === 404) {
-          toast.error(
-            "Local vault requires context-vault ui. Run: context-vault ui",
-          );
-        } else {
-          toast.error(err.message);
-        }
-      } else {
-        toast.error("Failed to connect to local vault");
+      const port = await autoDiscoverLocalPort();
+      if (!port) {
+        setLocalError(
+          "Local vault server not found. Start it with: context-vault ui",
+        );
+        return;
       }
-    } finally {
-      setLocalSubmitting(false);
-    }
-  };
-
-  const handleBrowse = async () => {
-    setBrowsing(true);
-    try {
-      const data = await api.post<{ path: string | null; cancelled?: boolean }>(
-        "/local/browse",
-      );
-      if (data.path) setVaultDir(data.path);
+      await loginWithLocalVault("");
+      navigate("/");
     } catch {
-      // Browse not available (non-local or unsupported platform)
+      setLocalError("Failed to connect to local vault");
     } finally {
-      setBrowsing(false);
+      setLocalConnecting(false);
     }
   };
 
@@ -185,55 +166,26 @@ export function Login() {
         {/* Conditional form */}
         {mode === "local" && !isLocal ? (
           <Card>
-            <CardContent className="pt-6">
-              <form onSubmit={handleLocalSubmit} className="space-y-4">
-                <div className="space-y-2">
-                  <Label htmlFor="vaultDir">Vault folder path</Label>
-                  <div className="flex gap-2">
-                    <Input
-                      id="vaultDir"
-                      type="text"
-                      placeholder="e.g. ~/vault or /Users/me/vault"
-                      value={vaultDir}
-                      onChange={(e) => setVaultDir(e.target.value)}
-                      disabled={localSubmitting}
-                      className="flex-1"
-                    />
-                    <Button
-                      type="button"
-                      variant="outline"
-                      size="sm"
-                      onClick={handleBrowse}
-                      disabled={browsing || localSubmitting}
-                      className="shrink-0"
-                    >
-                      {browsing ? (
-                        <Loader2 className="size-4 animate-spin" />
-                      ) : (
-                        "Browse"
-                      )}
-                    </Button>
-                  </div>
-                  <p className="text-xs text-muted-foreground">
-                    Leave empty to use the default vault (~/vault)
-                  </p>
-                </div>
-                <Button
-                  type="submit"
-                  variant="default"
-                  className="w-full"
-                  disabled={localSubmitting}
-                >
-                  {localSubmitting ? (
-                    <>
-                      <Loader2 className="size-4 mr-2 animate-spin" />
-                      Connecting...
-                    </>
-                  ) : (
-                    "Connect to local vault"
-                  )}
-                </Button>
-              </form>
+            <CardContent className="pt-6 space-y-3">
+              <Button
+                type="button"
+                variant="default"
+                className="w-full"
+                onClick={handleConnectLocal}
+                disabled={localConnecting}
+              >
+                {localConnecting ? (
+                  <>
+                    <Loader2 className="size-4 mr-2 animate-spin" />
+                    Connecting...
+                  </>
+                ) : (
+                  "Connect to local vault"
+                )}
+              </Button>
+              {localError && (
+                <p className="text-sm text-destructive">{localError}</p>
+              )}
             </CardContent>
           </Card>
         ) : (

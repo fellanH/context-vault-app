@@ -49,11 +49,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           setLocalServerDown(true);
           return;
         }
-        if (storedToken) {
-          clearStoredToken();
-          setToken(null);
-          setUser(null);
-        }
+        // Token is invalid — request() already cleared localStorage on 401.
+        // Do NOT wipe token/user state here: loginWithApiKey may have raced
+        // and established a valid session concurrently (OAuth callback flow).
+        // isAuthenticated stays false naturally because user is still null.
       })
       .finally(() => setIsLoading(false));
   }, []);

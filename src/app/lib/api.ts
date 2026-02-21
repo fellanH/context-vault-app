@@ -118,8 +118,10 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
       // use statusText fallback
     }
 
-    // On 401, clear stored token
-    if (res.status === 401) {
+    // On 401, clear stored token — but only if we actually sent one.
+    // An unauthenticated request racing against loginWithApiKey must not
+    // wipe a token that was just stored by the successful login.
+    if (res.status === 401 && token) {
       clearStoredToken();
     }
 

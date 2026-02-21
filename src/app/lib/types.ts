@@ -38,6 +38,7 @@ export interface ApiKey {
   prefix: string;
   createdAt: Date;
   lastUsedAt?: Date;
+  expiresAt?: Date;
 }
 
 export interface UsageResponse {
@@ -82,6 +83,7 @@ export interface ApiKeyListItem {
   name: string;
   created_at: string;
   last_used?: string | null;
+  expires_at?: string | null;
 }
 
 export interface ApiVaultStatusResponse {
@@ -288,6 +290,7 @@ export function transformApiKey(raw: ApiKeyListItem): ApiKey {
     prefix: raw.key_prefix,
     createdAt: new Date(raw.created_at),
     lastUsedAt: raw.last_used ? new Date(raw.last_used) : undefined,
+    expiresAt: raw.expires_at ? new Date(raw.expires_at) : undefined,
   };
 }
 

@@ -196,7 +196,7 @@ export function prepareMetaStatements(db) {
 
     // API Keys
     createApiKey: db.prepare(
-      `INSERT INTO api_keys (id, user_id, key_hash, key_prefix, name) VALUES (?, ?, ?, ?, ?)`,
+      `INSERT INTO api_keys (id, user_id, key_hash, key_prefix, name, expires_at) VALUES (?, ?, ?, ?, ?, ?)`,
     ),
     getKeyByHash: db.prepare(
       `SELECT ak.*, u.tier, u.email, u.stripe_customer_id FROM api_keys ak JOIN users u ON ak.user_id = u.id WHERE ak.key_hash = ?`,

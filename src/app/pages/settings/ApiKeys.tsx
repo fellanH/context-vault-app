@@ -9,32 +9,49 @@ import {
 import { Input } from "../../components/ui/input";
 import { Label } from "../../components/ui/label";
 import { Badge } from "../../components/ui/badge";
-import { Copy, Check, Plus, Trash2, Loader2 } from "lucide-react";
+import {
+  Copy,
+  Check,
+  Plus,
+  Trash2,
+  Loader2,
+  AlertTriangle,
+} from "lucide-react";
 import { useApiKeys, useCreateApiKey, useDeleteApiKey } from "../../lib/hooks";
 import { toast } from "sonner";
+
+const SEVEN_DAYS_MS = 7 * 24 * 60 * 60 * 1000;
 
 export function ApiKeys() {
   const { data: keys, isLoading } = useApiKeys();
   const createMutation = useCreateApiKey();
   const deleteMutation = useDeleteApiKey();
   const [newKeyName, setNewKeyName] = useState("");
+  const [newKeyExpiry, setNewKeyExpiry] = useState("");
   const [showCreate, setShowCreate] = useState(false);
   const [copied, setCopied] = useState<string | null>(null);
   const [newlyCreatedKey, setNewlyCreatedKey] = useState<string | null>(null);
 
   const createKey = () => {
     if (!newKeyName.trim()) return;
-    createMutation.mutate(newKeyName.trim(), {
-      onSuccess: (data) => {
-        setNewlyCreatedKey(data.key);
-        setNewKeyName("");
-        setShowCreate(false);
-        toast.success(`API key "${newKeyName.trim()}" created`);
+    createMutation.mutate(
+      {
+        name: newKeyName.trim(),
+        expires_at: newKeyExpiry || undefined,
       },
-      onError: () => {
-        toast.error("Failed to create API key");
+      {
+        onSuccess: (data) => {
+          setNewlyCreatedKey(data.key);
+          setNewKeyName("");
+          setNewKeyExpiry("");
+          setShowCreate(false);
+          toast.success(`API key "${newKeyName.trim()}" created`);
+        },
+        onError: () => {
+          toast.error("Failed to create API key");
+        },
       },
-    });
+    );
   };
 
   const deleteKey = (id: string) => {
@@ -73,6 +90,11 @@ export function ApiKeys() {
       ),
       "Config",
     );
+
+  // Min date for the expiry picker = tomorrow
+  const tomorrow = new Date();
+  tomorrow.setDate(tomorrow.getDate() + 1);
+  const minDate = tomorrow.toISOString().split("T")[0];
 
   return (
     <div className="p-6 max-w-3xl mx-auto space-y-6">
@@ -133,38 +155,59 @@ export function ApiKeys() {
         </CardHeader>
         <CardContent>
           {showCreate && (
-            <div className="flex items-end gap-2 mb-4 pb-4 border-b border-border">
-              <div className="flex-1 space-y-1.5">
-                <Label htmlFor="keyName" className="text-xs">
-                  Key name
-                </Label>
-                <Input
-                  id="keyName"
-                  placeholder="e.g. Development, Production"
-                  value={newKeyName}
-                  onChange={(e) => setNewKeyName(e.target.value)}
-                  onKeyDown={(e) => e.key === "Enter" && createKey()}
-                  disabled={createMutation.isPending}
-                />
+            <div className="flex flex-col gap-3 mb-4 pb-4 border-b border-border">
+              <div className="flex items-end gap-2">
+                <div className="flex-1 space-y-1.5">
+                  <Label htmlFor="keyName" className="text-xs">
+                    Key name
+                  </Label>
+                  <Input
+                    id="keyName"
+                    placeholder="e.g. Development, Production"
+                    value={newKeyName}
+                    onChange={(e) => setNewKeyName(e.target.value)}
+                    onKeyDown={(e) => e.key === "Enter" && createKey()}
+                    disabled={createMutation.isPending}
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <Label htmlFor="keyExpiry" className="text-xs">
+                    Expires (optional)
+                  </Label>
+                  <Input
+                    id="keyExpiry"
+                    type="date"
+                    min={minDate}
+                    value={newKeyExpiry}
+                    onChange={(e) => setNewKeyExpiry(e.target.value)}
+                    disabled={createMutation.isPending}
+                    className="w-40"
+                  />
+                </div>
               </div>
-              <Button
-                size="sm"
-                onClick={createKey}
-                disabled={createMutation.isPending}
-              >
-                {createMutation.isPending ? (
-                  <Loader2 className="size-3.5 animate-spin" />
-                ) : (
-                  "Create"
-                )}
-              </Button>
-              <Button
-                size="sm"
-                variant="ghost"
-                onClick={() => setShowCreate(false)}
-              >
-                Cancel
-              </Button>
+              <div className="flex gap-2">
+                <Button
+                  size="sm"
+                  onClick={createKey}
+                  disabled={createMutation.isPending}
+                >
+                  {createMutation.isPending ? (
+                    <Loader2 className="size-3.5 animate-spin" />
+                  ) : (
+                    "Create"
+                  )}
+                </Button>
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  onClick={() => {
+                    setShowCreate(false);
+                    setNewKeyExpiry("");
+                  }}
+                >
+                  Cancel
+                </Button>
+              </div>
             </div>
           )}
 
@@ -183,42 +226,61 @@ export function ApiKeys() {
             </p>
           ) : (
             <div className="space-y-2">
-              {keys.map((key) => (
-                <div
-                  key={key.id}
-                  className="flex items-center justify-between py-2 px-3 rounded-lg border border-border"
-                >
-                  <div className="flex items-center gap-3">
-                    <div>
-                      <p className="text-sm font-medium">{key.name}</p>
-                      <p className="text-xs text-muted-foreground font-mono">
-                        {key.prefix}...
-                      </p>
-                    </div>
-                    <Badge variant="secondary" className="text-[10px]">
-                      {key.createdAt.toLocaleDateString()}
-                    </Badge>
-                    <Badge variant="outline" className="text-[10px]">
-                      {key.lastUsedAt
-                        ? `Used ${key.lastUsedAt.toLocaleDateString()}`
-                        : "Never used"}
-                    </Badge>
-                  </div>
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    className="size-8 text-muted-foreground hover:text-destructive"
-                    onClick={() => deleteKey(key.id)}
-                    disabled={deleteMutation.isPending}
+              {keys.map((key) => {
+                const now = Date.now();
+                const expiringSoon =
+                  key.expiresAt &&
+                  key.expiresAt > new Date() &&
+                  key.expiresAt.getTime() - now < SEVEN_DAYS_MS;
+
+                return (
+                  <div
+                    key={key.id}
+                    className="flex items-center justify-between py-2 px-3 rounded-lg border border-border"
                   >
-                    {deleteMutation.isPending ? (
-                      <Loader2 className="size-3.5 animate-spin" />
-                    ) : (
-                      <Trash2 className="size-3.5" />
-                    )}
-                  </Button>
-                </div>
-              ))}
+                    <div className="flex items-center gap-3 flex-wrap">
+                      <div>
+                        <p className="text-sm font-medium">{key.name}</p>
+                        <p className="text-xs text-muted-foreground font-mono">
+                          {key.prefix}...
+                        </p>
+                      </div>
+                      <Badge variant="secondary" className="text-[10px]">
+                        {key.createdAt.toLocaleDateString()}
+                      </Badge>
+                      <Badge variant="outline" className="text-[10px]">
+                        {key.lastUsedAt
+                          ? `Used ${key.lastUsedAt.toLocaleDateString()}`
+                          : "Never used"}
+                      </Badge>
+                      {key.expiresAt && (
+                        <Badge
+                          variant={expiringSoon ? "destructive" : "outline"}
+                          className="text-[10px] gap-1"
+                        >
+                          {expiringSoon && (
+                            <AlertTriangle className="size-2.5" />
+                          )}
+                          Expires {key.expiresAt.toLocaleDateString()}
+                        </Badge>
+                      )}
+                    </div>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="size-8 text-muted-foreground hover:text-destructive"
+                      onClick={() => deleteKey(key.id)}
+                      disabled={deleteMutation.isPending}
+                    >
+                      {deleteMutation.isPending ? (
+                        <Loader2 className="size-3.5 animate-spin" />
+                      ) : (
+                        <Trash2 className="size-3.5" />
+                      )}
+                    </Button>
+                  </div>
+                );
+              })}
             </div>
           )}
         </CardContent>

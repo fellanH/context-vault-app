@@ -154,12 +154,24 @@ export function createManagementRoutes(ctx) {
     const body = await c.req.json().catch(() => ({}));
     const name = body.name || "default";
 
+    let expires_at = null;
+    if (body.expires_at) {
+      const d = new Date(body.expires_at);
+      if (isNaN(d.getTime()) || d <= new Date()) {
+        return c.json(
+          { error: "expires_at must be a future ISO date string" },
+          400,
+        );
+      }
+      expires_at = d.toISOString();
+    }
+
     const rawKey = generateApiKey();
     const hash = hashApiKey(rawKey);
     const prefix = keyPrefix(rawKey);
     const id = randomUUID();
 
-    stmts.createApiKey.run(id, user.userId, hash, prefix, name);
+    stmts.createApiKey.run(id, user.userId, hash, prefix, name, expires_at);
 
     // Return the raw key ONCE — it cannot be retrieved again
     return c.json(
@@ -168,6 +180,7 @@ export function createManagementRoutes(ctx) {
         key: rawKey,
         prefix,
         name,
+        expires_at,
         message: "Save this key — it will not be shown again.",
       },
       201,
@@ -323,28 +336,24 @@ export function createManagementRoutes(ctx) {
           .run(profile.googleId, existingUser.id);
       }
 
-      // Existing user — check key limit before creating a new key
+      // Only auto-create a key if the user has none yet.
+      // Avoids silently replacing MCP-configured keys on repeated OAuth sign-ins.
       const keys = stmts.listUserKeys.all(existingUser.id);
-      const limits = getTierLimits(existingUser.tier);
-      if (limits.apiKeys !== Infinity && keys.length >= limits.apiKeys) {
-        // At key limit — delete the oldest OAuth-generated key to make room
-        const oauthKey = keys.find((k) => k.name === "google-oauth");
-        if (oauthKey) {
-          stmts.deleteApiKey.run(oauthKey.id, existingUser.id);
-        }
+      if (keys.length === 0) {
+        apiKeyRaw = generateApiKey();
+        const hash = hashApiKey(apiKeyRaw);
+        const prefix = keyPrefix(apiKeyRaw);
+        const keyId = randomUUID();
+        stmts.createApiKey.run(
+          keyId,
+          existingUser.id,
+          hash,
+          prefix,
+          "default",
+          null,
+        );
       }
-
-      apiKeyRaw = generateApiKey();
-      const hash = hashApiKey(apiKeyRaw);
-      const prefix = keyPrefix(apiKeyRaw);
-      const keyId = randomUUID();
-      stmts.createApiKey.run(
-        keyId,
-        existingUser.id,
-        hash,
-        prefix,
-        keys.length > 0 ? "google-oauth" : "default",
-      );
+      // else: user has existing keys — leave them untouched; apiKeyRaw stays undefined
     } else {
       // New user — create account with google_id + split-authority encryption
       const userId = randomUUID();
@@ -375,7 +384,7 @@ export function createManagementRoutes(ctx) {
             userId,
           );
         }
-        stmts.createApiKey.run(keyId, userId, hash, prefix, "default");
+        stmts.createApiKey.run(keyId, userId, hash, prefix, "default", null);
       });
 
       try {
@@ -392,6 +401,12 @@ export function createManagementRoutes(ctx) {
         );
         return c.redirect(`${appUrl}/login?error=registration_failed`);
       }
+    }
+
+    // Existing user with existing keys — redirect to app root without issuing a new key.
+    // Their existing key (stored in browser from a prior session) remains valid.
+    if (!apiKeyRaw) {
+      return c.redirect(appUrl);
     }
 
     // Redirect to app with the API key as a token (one-time, via URL fragment)
@@ -452,7 +467,7 @@ export function createManagementRoutes(ctx) {
           userId,
         );
       }
-      stmts.createApiKey.run(keyId, userId, hash, prefix, "default");
+      stmts.createApiKey.run(keyId, userId, hash, prefix, "default", null);
     });
 
     try {

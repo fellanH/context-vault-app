@@ -146,10 +146,10 @@ export function useApiKeys() {
 export function useCreateApiKey() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (name: string) =>
+    mutationFn: ({ name, expires_at }: { name: string; expires_at?: string }) =>
       api.post<{ id: string; key: string; prefix: string; name: string }>(
         "/keys",
-        { name },
+        { name, expires_at },
       ),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["apiKeys"] });

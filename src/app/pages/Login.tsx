@@ -115,11 +115,10 @@ export function Login() {
   const handleBrowse = async () => {
     setBrowsing(true);
     try {
-      const res = await fetch(`${API_URL}/local/browse`, { method: "POST" });
-      if (res.ok) {
-        const data = await res.json();
-        if (data.path) setVaultDir(data.path);
-      }
+      const data = await api.post<{ path: string | null; cancelled?: boolean }>(
+        "/local/browse",
+      );
+      if (data.path) setVaultDir(data.path);
     } catch {
       // Browse not available (non-local or unsupported platform)
     } finally {

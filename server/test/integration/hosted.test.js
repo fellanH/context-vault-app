@@ -13,10 +13,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 
 const PORT = 3457;
-const SERVER_ENTRY = resolve(
-  import.meta.dirname,
-  "../../src/index.js",
-);
+const SERVER_ENTRY = resolve(import.meta.dirname, "../../src/index.js");
 
 describe("hosted MCP server", () => {
   let serverProcess;

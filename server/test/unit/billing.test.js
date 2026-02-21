@@ -3,10 +3,7 @@
  */
 
 import { describe, it, expect } from "vitest";
-import {
-  getTierLimits,
-  isOverEntryLimit,
-} from "../../src/billing/stripe.js";
+import { getTierLimits, isOverEntryLimit } from "../../src/billing/stripe.js";
 
 describe("tier limits", () => {
   it("returns free tier limits by default", () => {

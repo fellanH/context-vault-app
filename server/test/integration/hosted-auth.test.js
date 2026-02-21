@@ -14,10 +14,7 @@ import { join } from "node:path";
 
 const PORT = 3458;
 const BASE = `http://localhost:${PORT}`;
-const SERVER_ENTRY = resolve(
-  import.meta.dirname,
-  "../../src/index.js",
-);
+const SERVER_ENTRY = resolve(import.meta.dirname, "../../src/index.js");
 
 // Use unique email prefix per run to avoid collisions
 const RUN_ID = Date.now().toString(36);

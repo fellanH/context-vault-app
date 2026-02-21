@@ -83,6 +83,25 @@ All feedback → GitHub Issue immediately. Labels: `feedback`, `bug`, `feature`,
 GitHub Issues is the only backlog. No Notion, no Slack threads.
 Weekly triage: close anything with no clear value or not aligned with current themes.
 
+## Server (Fly.io)
+
+The hosted backend lives in `server/`. It's a Hono HTTP server deployed to Fly.io.
+Depends on `@context-vault/core` from npm.
+
+```bash
+# Dev (run in addition to npm run dev)
+node --watch server/src/index.js
+
+# Test
+cd server && npm install && npm test
+
+# Deploy
+npm run fly:deploy   # or: fly deploy from repo root
+```
+
+`fly.toml` is at the repo root. Docker build context is the repo root; Dockerfile is at `server/Dockerfile`.
+Fly secrets: AUTH_REQUIRED, VAULT_MASTER_SECRET, STRIPE_SECRET_KEY, STRIPE_WEBHOOK_SECRET, STRIPE_PRICE_PRO.
+
 ## Staying lean
 
 - Max 2–3 active workstreams at any time. Everything else is `parked`.

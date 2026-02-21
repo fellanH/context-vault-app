@@ -7,7 +7,8 @@
     "build": "vite build",
     "dev": "vite",
     "lint": "eslint src",
-    "deploy": "vercel --prod"
+    "deploy": "vercel --prod",
+    "fly:deploy": "fly deploy"
   },
   "dependencies": {
     "@radix-ui/react-alert-dialog": "1.1.6",

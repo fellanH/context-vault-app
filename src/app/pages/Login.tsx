@@ -54,7 +54,8 @@ export function Login() {
   }, [isLocal]);
 
   const handleGoogleLogin = () => {
-    window.location.href = `${API_URL}/auth/google`;
+    const origin = encodeURIComponent(window.location.origin);
+    window.location.href = `${API_URL}/auth/google?origin=${origin}`;
   };
 
   const handleApiKeySubmit = async (e: React.FormEvent) => {

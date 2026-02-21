@@ -3,7 +3,7 @@
 ## Stack
 
 React 19, React Router 7, React Query, Tailwind CSS 4, shadcn/ui, Vite 6.
-Deployed to Vercel via CLI. No CI/CD — deploys are always manual from local.
+Deployed to Vercel via Git integration + CLI promotion.
 
 ## Dev
 
@@ -15,14 +15,29 @@ npm run build     # production build → dist/
 
 ## Deploy
 
-```bash
-vercel            # preview deploy (staging — always do this first)
-vercel --prod     # promote to production (app.context-vault.com)
+### Normal flow
+
+```
+git push origin main   →  auto-deploys to preview (Vercel Git integration)
+                           human verifies preview
+vercel --prod          →  promote to production
 ```
 
-Vercel project: `context-vault-app` | Org: `klarhimmel`
+- **Preview (stable):** `https://context-vault-app-git-main-klarhimmel.vercel.app` — always reflects latest `main`
+- **Production:** `https://app.context-vault.com`
+- `vercel --prod` is the only gate to production — run it only after human sign-off on preview
+
+### Ad-hoc local preview
+
+```bash
+vercel   # deploy from local without committing — useful for quick experiments
+```
+
+### Vercel project
+
+Project: `context-vault-app` | Org: `klarhimmel`
 Project ID: `prj_BadSVacqViIZ2xt29rO8vfU8nQvc`
-GitHub push = version control only, never triggers a deploy.
+Production Branch in Vercel settings: `release` (never pushed to — prevents any auto-prod deploy)
 Env vars live in Vercel dashboard. Never commit `.env.local`.
 
 ## Commit prefixes
@@ -37,20 +52,21 @@ Env vars live in Vercel dashboard. Never commit `.env.local`.
 
 ## Hotfixes
 
-Fix on `main` → `npm run build` → `git push` → `vercel --prod` (skip preview).
-Only use preview first if the fix touches auth, data, or payments.
+Fix on `main` → `git push` → verify on preview URL → `vercel --prod`.
+The preview auto-deploys on push so you can verify immediately without a manual `vercel` step.
+Only skip preview verification if the site is completely down and every second counts.
 
 ## Features
 
 Open a GitHub Issue with a clear "done when..." before writing code.
-Small features (< ~1 day): work on `main`. Larger: short-lived branch, merge with `--no-ff`.
-Always deploy preview → human verify → then `vercel --prod`.
+All work on `main` — no long-lived branches. Short-lived branches only for risky/experimental work, merge with `--no-ff`.
+Push early and often to `main` → preview auto-updates → verify → `vercel --prod` when ready.
 
 ## Testing
 
 - **Automated (Vitest):** pure functions, formatters, type transforms, API mappers.
 - **Automated (Playwright):** only for paths that break silently — auth, onboarding, payments.
-- **Human visual check:** all UI changes and new features, verified on preview deploy before prod.
+- **Human visual check:** all UI changes and new features, verified on preview before prod.
   - Check: browser console errors, light + dark mode, ~1280px and ~768px widths.
 - Rule: don't automate what a 60-second manual check covers adequately.
 

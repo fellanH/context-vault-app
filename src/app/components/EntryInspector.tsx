@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 import type { Entry } from "../lib/types";
 import { useDeleteEntry } from "../lib/hooks";
 import { ApiError } from "../lib/api";
@@ -17,7 +18,6 @@ import {
   Calendar,
   Hash,
   Link2,
-  Loader2,
 } from "lucide-react";
 import { toast } from "sonner";
 import {
@@ -47,6 +47,7 @@ export function EntryInspector({
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [deleteConfirmText, setDeleteConfirmText] = useState("");
   const deleteEntry = useDeleteEntry();
+  const qc = useQueryClient();
 
   if (!entry) return null;
 
@@ -66,19 +67,56 @@ export function EntryInspector({
       return;
     }
 
-    deleteEntry.mutate(entry.id, {
-      onSuccess: () => {
-        toast.success("Entry deleted");
-        setDeleteDialogOpen(false);
-        setDeleteConfirmText("");
-        onOpenChange(false);
-      },
-      onError: (err) => {
-        if (err instanceof ApiError) {
-          toast.error("Failed to delete entry", { description: err.message });
-        } else {
-          toast.error("Failed to delete entry");
-        }
+    // Close dialog and inspector immediately (optimistic)
+    setDeleteDialogOpen(false);
+    setDeleteConfirmText("");
+    onOpenChange(false);
+
+    // Snapshot the current cache so we can restore on undo
+    const snapshot = qc.getQueriesData<{ entries: Entry[]; total: number }>({
+      queryKey: ["entries"],
+    });
+
+    // Optimistically remove the entry from all cached pages
+    qc.setQueriesData<{ entries: Entry[]; total: number }>(
+      { queryKey: ["entries"] },
+      (old) =>
+        old
+          ? {
+              entries: old.entries.filter((e) => e.id !== entry.id),
+              total: old.total - 1,
+            }
+          : old,
+    );
+
+    const entryId = entry.id;
+
+    const timeoutId = setTimeout(() => {
+      deleteEntry.mutate(entryId, {
+        onError: (err) => {
+          // Restore optimistic update on API failure
+          for (const [key, data] of snapshot) {
+            qc.setQueryData(key, data);
+          }
+          if (err instanceof ApiError) {
+            toast.error("Failed to delete entry", { description: err.message });
+          } else {
+            toast.error("Failed to delete entry");
+          }
+        },
+      });
+    }, 5000);
+
+    toast("Entry deleted", {
+      duration: 5000,
+      action: {
+        label: "Undo",
+        onClick: () => {
+          clearTimeout(timeoutId);
+          for (const [key, data] of snapshot) {
+            qc.setQueryData(key, data);
+          }
+        },
       },
     });
   };
@@ -283,11 +321,11 @@ export function EntryInspector({
               {requiresConfirmation ? (
                 <div className="space-y-3">
                   <p>
-                    This {entry.category} entry is permanent. Type{" "}
+                    Type{" "}
                     <code className="px-1.5 py-0.5 bg-muted rounded text-xs font-mono">
                       {confirmSlug}
                     </code>{" "}
-                    to confirm deletion.
+                    to confirm. You'll have 5 seconds to undo.
                   </p>
                   <Input
                     value={deleteConfirmText}
@@ -298,8 +336,7 @@ export function EntryInspector({
                 </div>
               ) : (
                 <p>
-                  This event entry will be permanently deleted. This action
-                  cannot be undone.
+                  This entry will be deleted. You'll have 5 seconds to undo.
                 </p>
               )}
             </AlertDialogDescription>
@@ -308,15 +345,7 @@ export function EntryInspector({
             <AlertDialogCancel onClick={() => setDeleteConfirmText("")}>
               Cancel
             </AlertDialogCancel>
-            <AlertDialogAction
-              onClick={handleDelete}
-              disabled={deleteEntry.isPending}
-            >
-              {deleteEntry.isPending && (
-                <Loader2 className="size-4 mr-2 animate-spin" />
-              )}
-              Delete
-            </AlertDialogAction>
+            <AlertDialogAction onClick={handleDelete}>Delete</AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>

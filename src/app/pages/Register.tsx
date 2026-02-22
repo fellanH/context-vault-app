@@ -5,6 +5,7 @@ import { ApiError } from "../lib/api";
 import { Button } from "../components/ui/button";
 import { Input } from "../components/ui/input";
 import { Label } from "../components/ui/label";
+import { Progress } from "../components/ui/progress";
 import {
   Card,
   CardContent,
@@ -13,12 +14,86 @@ import {
 } from "../components/ui/card";
 import { Copy, Check, Loader2, Terminal } from "lucide-react";
 import { toast } from "sonner";
+import { useImportEntry } from "../lib/hooks";
+import { consumePendingFiles, hasPendingFiles } from "../lib/pendingImport";
+import { setOnboardingMode } from "../lib/onboarding";
 
 const API_URL = import.meta.env.VITE_API_URL || "/api";
+
+// ── Import utilities (mirrors Import.tsx) ────────────────────────────────────
+
+function parseFrontmatter(raw: string): {
+  meta: Record<string, unknown>;
+  body: string;
+} {
+  const match = raw.match(/^---\r?\n([\s\S]*?)\r?\n---\r?\n?([\s\S]*)$/);
+  if (!match) return { meta: {}, body: raw.trim() };
+
+  const yamlStr = match[1];
+  const body = match[2].trim();
+  const meta: Record<string, unknown> = {};
+
+  const mlArr = yamlStr.replace(
+    /^(\w[\w-]*):\s*\n((?:[ \t]+-[^\n]*\n?)+)/gm,
+    (_, k, block) => {
+      meta[k] = block
+        .match(/^[ \t]+-\s*(.+)$/gm)!
+        .map((l: string) => l.replace(/^[ \t]+-\s*/, "").trim());
+      return "";
+    },
+  );
+
+  for (const line of mlArr.split("\n")) {
+    const m = line.match(/^(\w[\w-]*):\s*(.*)/);
+    if (!m) continue;
+    const [, k, v] = m;
+    if (k in meta) continue;
+    if (v.startsWith("[")) {
+      meta[k] = v
+        .slice(1, -1)
+        .split(",")
+        .map((s: string) => s.trim().replace(/^["']|["']$/g, ""))
+        .filter(Boolean);
+    } else {
+      meta[k] = v.replace(/^["']|["']$/g, "").trim();
+    }
+  }
+
+  return { meta, body };
+}
+
+function guessKindFromPath(relPath: string): string {
+  const parts = relPath.split("/");
+  if (parts.length >= 2) return parts[parts.length - 2].replace(/s$/, "");
+  return "insight";
+}
+
+const RESERVED_FM_KEYS = new Set([
+  "id",
+  "kind",
+  "title",
+  "tags",
+  "source",
+  "created",
+  "identity_key",
+  "expires_at",
+]);
+
+function extractCustomMeta(meta: Record<string, unknown>) {
+  const custom: Record<string, unknown> = {};
+  for (const [k, v] of Object.entries(meta)) {
+    if (!RESERVED_FM_KEYS.has(k)) custom[k] = v;
+  }
+  return Object.keys(custom).length ? custom : undefined;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 
 export function Register() {
   const { register } = useAuth();
   const navigate = useNavigate();
+  const importMutation = useImportEntry();
+
   const [email, setEmail] = useState("");
   const [name, setName] = useState("");
   const [generatedKey, setGeneratedKey] = useState<string | null>(null);
@@ -28,7 +103,23 @@ export function Register() {
   const [isRedirecting, setIsRedirecting] = useState(false);
   const [showEmailForm, setShowEmailForm] = useState(false);
 
+  // Import state — populated when files were selected on the Login page
+  const [filesToImport, setFilesToImport] = useState<File[] | null>(null);
+  const [importRunning, setImportRunning] = useState(false);
+  const [importProgress, setImportProgress] = useState(0);
+  const [importTotal, setImportTotal] = useState(0);
+  const [importCurrent, setImportCurrent] = useState(0);
+  const [importResult, setImportResult] = useState<{
+    succeeded: number;
+    total: number;
+  } | null>(null);
+
   const handleGoogleRegister = () => {
+    if (hasPendingFiles()) {
+      // Files won't survive the OAuth redirect — set migration mode so the
+      // dashboard shows the import step on first visit instead.
+      setOnboardingMode("migration");
+    }
     setIsRedirecting(true);
     const origin = encodeURIComponent(window.location.origin);
     window.location.href = `${API_URL}/auth/google?origin=${origin}`;
@@ -43,6 +134,11 @@ export function Register() {
       const result = await register(email.trim(), name.trim() || undefined);
       setGeneratedKey(result.apiKey);
       toast.success("Account created!");
+      // Pick up any vault files selected on the login page
+      const pending = consumePendingFiles();
+      if (pending && pending.length > 0) {
+        setFilesToImport(pending);
+      }
     } catch (err) {
       if (err instanceof ApiError) {
         if (err.status === 409) {
@@ -77,6 +173,43 @@ export function Register() {
     setCopiedCmd(true);
     toast.success("Command copied");
     setTimeout(() => setCopiedCmd(false), 2000);
+  };
+
+  const runImport = async (files: File[]) => {
+    setImportRunning(true);
+    setImportTotal(files.length);
+    setImportCurrent(0);
+    setImportProgress(0);
+    let succeeded = 0;
+    for (let i = 0; i < files.length; i++) {
+      try {
+        const raw = await files[i].text();
+        const { meta, body } = parseFrontmatter(raw);
+        const kind =
+          (meta.kind as string) ||
+          guessKindFromPath(
+            (files[i] as File & { webkitRelativePath: string })
+              .webkitRelativePath || files[i].name,
+          );
+        await importMutation.mutateAsync({
+          id: meta.id,
+          kind,
+          title: (meta.title as string) || null,
+          body,
+          tags: (meta.tags as string[]) || [],
+          source: (meta.source as string) || "import",
+          identity_key: (meta.identity_key as string) || null,
+          expires_at: (meta.expires_at as string) || null,
+          created_at: (meta.created as string) || null,
+          meta: extractCustomMeta(meta),
+        });
+        succeeded++;
+      } catch {}
+      setImportCurrent(i + 1);
+      setImportProgress(((i + 1) / files.length) * 100);
+    }
+    setImportRunning(false);
+    setImportResult({ succeeded, total: files.length });
   };
 
   if (generatedKey) {
@@ -164,6 +297,44 @@ export function Register() {
                 </pre>
               </details>
 
+              {/* Vault import — only shown when files were selected on the login page */}
+              {filesToImport && !importResult && (
+                <div className="rounded-lg border bg-muted/40 p-3 space-y-3">
+                  <p className="text-sm font-medium">Import your local vault</p>
+                  {importRunning ? (
+                    <div className="space-y-1.5">
+                      <p className="text-xs text-muted-foreground">
+                        {importCurrent} / {importTotal}
+                      </p>
+                      <Progress value={importProgress} className="h-1.5" />
+                    </div>
+                  ) : (
+                    <>
+                      <p className="text-xs text-muted-foreground">
+                        {filesToImport.length} markdown files selected — import
+                        them into your vault now.
+                      </p>
+                      <Button
+                        size="sm"
+                        className="w-full"
+                        onClick={() => runImport(filesToImport)}
+                      >
+                        Import {filesToImport.length} files
+                      </Button>
+                    </>
+                  )}
+                </div>
+              )}
+
+              {importResult && (
+                <p className="text-xs text-muted-foreground text-center">
+                  <span className="font-medium text-foreground">
+                    {importResult.succeeded}
+                  </span>{" "}
+                  of {importResult.total} vault entries imported.
+                </p>
+              )}
+
               <Button className="w-full" onClick={() => navigate("/")}>
                 Continue to Dashboard
               </Button>
@@ -187,6 +358,15 @@ export function Register() {
             <CardTitle className="text-lg">Get started</CardTitle>
           </CardHeader>
           <CardContent className="space-y-4">
+            {hasPendingFiles() && (
+              <div className="rounded-lg border border-primary/20 bg-primary/5 px-3 py-2">
+                <p className="text-xs text-muted-foreground">
+                  Your vault folder is ready — entries will be imported after
+                  account creation.
+                </p>
+              </div>
+            )}
+
             <Button
               variant="default"
               className="w-full gap-2"

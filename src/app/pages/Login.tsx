@@ -1,23 +1,18 @@
-import { useState, useEffect } from "react";
+import { useState, useRef, useEffect } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router";
-import { useAuth } from "../lib/auth";
-import { ApiError } from "../lib/api";
 import { Button } from "../components/ui/button";
-import { Input } from "../components/ui/input";
-import { Label } from "../components/ui/label";
 import { Card, CardContent } from "../components/ui/card";
-import { Key, Loader2 } from "lucide-react";
+import { FolderOpen, Loader2 } from "lucide-react";
 import { toast } from "sonner";
+import { setPendingFiles } from "../lib/pendingImport";
 
 const API_URL = import.meta.env.VITE_API_URL || "/api";
 
 export function Login() {
-  const { loginWithApiKey } = useAuth();
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
-  const [apiKey, setApiKey] = useState("");
-  const [isSubmitting, setIsSubmitting] = useState(false);
   const [isRedirecting, setIsRedirecting] = useState(false);
+  const folderInputRef = useRef<HTMLInputElement>(null);
 
   // Handle OAuth error params
   useEffect(() => {
@@ -34,7 +29,6 @@ export function Login() {
       toast.error("Account creation failed. Please try again.");
     }
 
-    // Strip the error param so toast doesn't replay on reload
     navigate("/login", { replace: true });
   }, [searchParams, navigate]);
 
@@ -44,27 +38,16 @@ export function Login() {
     window.location.href = `${API_URL}/auth/google?origin=${origin}`;
   };
 
-  const handleApiKeySubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!apiKey.trim() || isSubmitting) return;
-    setIsSubmitting(true);
-    try {
-      await loginWithApiKey(apiKey.trim());
-      toast.success("Authenticated successfully");
-      navigate("/");
-    } catch (err) {
-      if (err instanceof ApiError) {
-        if (err.status === 401) {
-          toast.error("Invalid API key");
-        } else {
-          toast.error(err.message);
-        }
-      } else {
-        toast.error("Failed to authenticate");
-      }
-    } finally {
-      setIsSubmitting(false);
+  const handleFolderSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(e.target.files ?? []).filter((f) =>
+      f.name.endsWith(".md"),
+    );
+    if (!files.length) {
+      toast.error("No markdown files found in that folder");
+      return;
     }
+    setPendingFiles(files);
+    navigate("/register");
   };
 
   return (
@@ -118,43 +101,35 @@ export function Login() {
               </div>
               <div className="relative flex justify-center text-xs uppercase">
                 <span className="bg-card px-2 text-muted-foreground">
-                  Or use API key
+                  Or migrate from local vault
                 </span>
               </div>
             </div>
 
-            <form onSubmit={handleApiKeySubmit} className="space-y-4">
-              <div className="space-y-2">
-                <Label htmlFor="apiKey">API Key</Label>
-                <div className="relative">
-                  <Key className="absolute left-3 top-1/2 -translate-y-1/2 size-4 text-muted-foreground" />
-                  <Input
-                    id="apiKey"
-                    type="password"
-                    placeholder="cv_..."
-                    value={apiKey}
-                    onChange={(e) => setApiKey(e.target.value)}
-                    className="pl-9"
-                    disabled={isSubmitting}
-                  />
-                </div>
-              </div>
+            <div className="space-y-2">
+              <p className="text-xs text-muted-foreground text-center">
+                Coming from context-vault/core? Select your vault folder to
+                migrate your entries.
+              </p>
               <Button
-                type="submit"
-                variant="secondary"
-                className="w-full"
-                disabled={isSubmitting}
+                type="button"
+                variant="outline"
+                className="w-full gap-2"
+                onClick={() => folderInputRef.current?.click()}
               >
-                {isSubmitting ? (
-                  <>
-                    <Loader2 className="size-4 mr-2 animate-spin" />
-                    Signing in...
-                  </>
-                ) : (
-                  "Sign in with API key"
-                )}
+                <FolderOpen className="size-4" />
+                Select vault folder
               </Button>
-            </form>
+              <input
+                ref={folderInputRef}
+                type="file"
+                // @ts-expect-error webkitdirectory not in standard types
+                webkitdirectory=""
+                multiple
+                className="hidden"
+                onChange={handleFolderSelect}
+              />
+            </div>
           </CardContent>
         </Card>
 

@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import type { Entry } from "../lib/types";
 import { useDeleteEntry, useUpdateEntry } from "../lib/hooks";
@@ -122,6 +122,27 @@ export function EntryInspector({
     setIsEditing(false);
     if (pendingClose) onOpenChange(false);
   };
+
+  // Keyboard shortcut: press E to enter edit mode when Inspector is open
+  useEffect(() => {
+    if (!open || isEditing) return;
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key !== "e" && e.key !== "E") return;
+      const target = e.target as HTMLElement;
+      const tag = target.tagName.toLowerCase();
+      if (
+        tag === "input" ||
+        tag === "textarea" ||
+        tag === "select" ||
+        target.isContentEditable
+      )
+        return;
+      e.preventDefault();
+      startEditing();
+    };
+    document.addEventListener("keydown", handleKeyDown);
+    return () => document.removeEventListener("keydown", handleKeyDown);
+  }, [open, isEditing]);
 
   const handleAddTag = () => {
     const tag = editTagInput.trim();

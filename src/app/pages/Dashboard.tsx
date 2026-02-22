@@ -73,6 +73,8 @@ export function Dashboard() {
 
   const entriesUsed = usage?.entries.used ?? 0;
   const hasMcpActivity = (apiKeys ?? []).some((key) => Boolean(key.lastUsedAt));
+  const mcpCallsToday = usage?.requestsToday.used ?? 0;
+  const mcpCallsThisWeek = usage?.requestsThisWeek.used ?? 0;
 
   const [onboardingMode, setOnboardingModeState] =
     useState<OnboardingMode | null>(() => getOnboardingMode());
@@ -448,6 +450,59 @@ export function Dashboard() {
                 <span className="text-foreground">Windsurf</span> ·{" "}
                 <span className="text-foreground">Zed</span>
               </p>
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      {/* MCP Activity — shows today/week stats or setup CTA */}
+      <Card>
+        <CardHeader className="pb-2">
+          <div className="flex items-center gap-2">
+            <CardTitle className="text-xs font-medium text-muted-foreground">
+              MCP Activity
+            </CardTitle>
+            <Zap className="size-3.5 text-muted-foreground ml-auto" />
+          </div>
+        </CardHeader>
+        <CardContent>
+          {!usageLoading && !hasMcpActivity ? (
+            <div className="flex flex-col gap-2 py-1">
+              <p className="text-sm text-muted-foreground">
+                No MCP calls recorded yet.
+              </p>
+              <Button variant="outline" size="sm" asChild className="w-fit">
+                <Link to="/settings/api-keys">
+                  Connect AI tools
+                  <ExternalLink className="size-3 ml-1.5" />
+                </Link>
+              </Button>
+            </div>
+          ) : (
+            <div className="flex items-center gap-6">
+              <div>
+                <p className="text-2xl font-semibold">
+                  {usageLoading ? (
+                    <span className="inline-block h-7 w-10 bg-muted rounded animate-pulse" />
+                  ) : (
+                    mcpCallsToday
+                  )}
+                </p>
+                <p className="text-xs text-muted-foreground mt-0.5">Today</p>
+              </div>
+              <div className="w-px h-8 bg-border" />
+              <div>
+                <p className="text-2xl font-semibold">
+                  {usageLoading ? (
+                    <span className="inline-block h-7 w-10 bg-muted rounded animate-pulse" />
+                  ) : (
+                    mcpCallsThisWeek
+                  )}
+                </p>
+                <p className="text-xs text-muted-foreground mt-0.5">
+                  This week
+                </p>
+              </div>
             </div>
           )}
         </CardContent>

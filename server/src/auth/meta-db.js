@@ -235,6 +235,9 @@ export function prepareMetaStatements(db) {
     countUsageToday: db.prepare(
       `SELECT COUNT(*) as c FROM usage_log WHERE user_id = ? AND operation = ? AND timestamp >= date('now')`,
     ),
+    countUsageThisWeek: db.prepare(
+      `SELECT COUNT(*) as c FROM usage_log WHERE user_id = ? AND operation = ? AND timestamp >= date('now', '-6 days')`,
+    ),
     countEntries: db.prepare(
       `SELECT COUNT(*) as c FROM usage_log WHERE user_id = ? AND operation = 'save_context'`,
     ),

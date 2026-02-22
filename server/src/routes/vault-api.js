@@ -30,6 +30,7 @@ import { getCachedUserCtx } from "../server/user-ctx.js";
 import { cookieOrBearerAuth } from "../middleware/auth.js";
 import { rateLimit } from "../middleware/rate-limit.js";
 import { generateOpenApiSpec } from "../api/openapi.js";
+import { hasScope } from "../auth/scopes.js";
 
 /**
  * Format a DB row into a clean API entry response.
@@ -103,6 +104,15 @@ export function createVaultApiRoutes(ctx, masterSecret) {
 
   api.get("/api/vault/entries", async (c) => {
     const user = c.get("user");
+    if (!hasScope(user.scopes, "vault:read")) {
+      return c.json(
+        {
+          error: "Insufficient scope. Required: vault:read",
+          code: "FORBIDDEN",
+        },
+        403,
+      );
+    }
     const teamId = c.req.query("team_id") || null;
     const userCtx = await getCachedUserCtx(
       ctx,
@@ -171,6 +181,15 @@ export function createVaultApiRoutes(ctx, masterSecret) {
 
   api.get("/api/vault/entries/:id", async (c) => {
     const user = c.get("user");
+    if (!hasScope(user.scopes, "vault:read")) {
+      return c.json(
+        {
+          error: "Insufficient scope. Required: vault:read",
+          code: "FORBIDDEN",
+        },
+        403,
+      );
+    }
     const userCtx = await getCachedUserCtx(ctx, user, masterSecret);
     const id = c.req.param("id");
 
@@ -190,6 +209,15 @@ export function createVaultApiRoutes(ctx, masterSecret) {
 
   api.post("/api/vault/entries", async (c) => {
     const user = c.get("user");
+    if (!hasScope(user.scopes, "vault:write")) {
+      return c.json(
+        {
+          error: "Insufficient scope. Required: vault:write",
+          code: "FORBIDDEN",
+        },
+        403,
+      );
+    }
     const userCtx = await getCachedUserCtx(ctx, user, masterSecret);
 
     const data = await c.req.json().catch(() => null);
@@ -264,6 +292,15 @@ export function createVaultApiRoutes(ctx, masterSecret) {
 
   api.put("/api/vault/entries/:id", async (c) => {
     const user = c.get("user");
+    if (!hasScope(user.scopes, "vault:write")) {
+      return c.json(
+        {
+          error: "Insufficient scope. Required: vault:write",
+          code: "FORBIDDEN",
+        },
+        403,
+      );
+    }
     const userCtx = await getCachedUserCtx(ctx, user, masterSecret);
     const id = c.req.param("id");
 
@@ -350,6 +387,15 @@ export function createVaultApiRoutes(ctx, masterSecret) {
 
   api.delete("/api/vault/entries/:id", async (c) => {
     const user = c.get("user");
+    if (!hasScope(user.scopes, "vault:write")) {
+      return c.json(
+        {
+          error: "Insufficient scope. Required: vault:write",
+          code: "FORBIDDEN",
+        },
+        403,
+      );
+    }
     const userCtx = await getCachedUserCtx(ctx, user, masterSecret);
     const id = c.req.param("id");
 
@@ -392,6 +438,15 @@ export function createVaultApiRoutes(ctx, masterSecret) {
 
   api.post("/api/vault/search", async (c) => {
     const user = c.get("user");
+    if (!hasScope(user.scopes, "vault:read")) {
+      return c.json(
+        {
+          error: "Insufficient scope. Required: vault:read",
+          code: "FORBIDDEN",
+        },
+        403,
+      );
+    }
     const userCtx = await getCachedUserCtx(ctx, user, masterSecret);
 
     const data = await c.req.json().catch(() => null);
@@ -442,6 +497,15 @@ export function createVaultApiRoutes(ctx, masterSecret) {
     rateLimit(),
     async (c) => {
       const user = c.get("user");
+      if (!hasScope(user.scopes, "vault:write")) {
+        return c.json(
+          {
+            error: "Insufficient scope. Required: vault:write",
+            code: "FORBIDDEN",
+          },
+          403,
+        );
+      }
       const userCtx = await getCachedUserCtx(ctx, user, masterSecret);
 
       const data = await c.req.json().catch(() => null);
@@ -532,6 +596,15 @@ export function createVaultApiRoutes(ctx, masterSecret) {
     rateLimit(),
     async (c) => {
       const user = c.get("user");
+      if (!hasScope(user.scopes, "vault:write")) {
+        return c.json(
+          {
+            error: "Insufficient scope. Required: vault:write",
+            code: "FORBIDDEN",
+          },
+          403,
+        );
+      }
       const userCtx = await getCachedUserCtx(ctx, user, masterSecret);
 
       const data = await c.req.json().catch(() => null);
@@ -608,6 +681,15 @@ export function createVaultApiRoutes(ctx, masterSecret) {
     rateLimit(),
     async (c) => {
       const user = c.get("user");
+      if (!hasScope(user.scopes, "vault:write")) {
+        return c.json(
+          {
+            error: "Insufficient scope. Required: vault:write",
+            code: "FORBIDDEN",
+          },
+          403,
+        );
+      }
       const userCtx = await getCachedUserCtx(ctx, user, masterSecret);
 
       const data = await c.req.json().catch(() => null);
@@ -649,6 +731,15 @@ export function createVaultApiRoutes(ctx, masterSecret) {
     rateLimit(),
     async (c) => {
       const user = c.get("user");
+      if (!hasScope(user.scopes, "vault:read")) {
+        return c.json(
+          {
+            error: "Insufficient scope. Required: vault:read",
+            code: "FORBIDDEN",
+          },
+          403,
+        );
+      }
       const userCtx = await getCachedUserCtx(ctx, user, masterSecret);
 
       const clauses = ["(expires_at IS NULL OR expires_at > datetime('now'))"];
@@ -678,6 +769,15 @@ export function createVaultApiRoutes(ctx, masterSecret) {
 
   api.get("/api/vault/status", async (c) => {
     const user = c.get("user");
+    if (!hasScope(user.scopes, "vault:read")) {
+      return c.json(
+        {
+          error: "Insufficient scope. Required: vault:read",
+          code: "FORBIDDEN",
+        },
+        403,
+      );
+    }
     const userCtx = await getCachedUserCtx(ctx, user, masterSecret);
 
     const status = gatherVaultStatus(userCtx, { userId: userCtx.userId });

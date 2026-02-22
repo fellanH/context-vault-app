@@ -39,6 +39,7 @@ import {
 } from "./auth/meta-db.js";
 import { bearerAuth } from "./middleware/auth.js";
 import { rateLimit } from "./middleware/rate-limit.js";
+import { hasScope } from "./auth/scopes.js";
 import { requestLogger } from "./middleware/logger.js";
 import { createManagementRoutes } from "./server/management.js";
 import { createVaultApiRoutes } from "./routes/vault-api.js";
@@ -320,7 +321,14 @@ async function handleMcpRequest(c, user) {
 
 if (AUTH_REQUIRED) {
   app.all("/mcp", bearerAuth(), rateLimit(), async (c) => {
-    return handleMcpRequest(c, c.get("user"));
+    const user = c.get("user");
+    if (!hasScope(user.scopes, "mcp")) {
+      return c.json(
+        { error: "Insufficient scope. Required: mcp", code: "FORBIDDEN" },
+        403,
+      );
+    }
+    return handleMcpRequest(c, user);
   });
 } else {
   app.all("/mcp", async (c) => {

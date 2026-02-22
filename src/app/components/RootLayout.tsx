@@ -73,7 +73,7 @@ export function RootLayout() {
   const { data: usage, isLoading: usageLoading } = useUsage();
   const vaultStatus = useVaultStatus({
     enabled: isAuthenticated,
-    refetchInterval: 15000,
+    refetchInterval: (query) => (query.state.status === "error" ? 5000 : 15000),
   });
   const { data: teams } = useTeams();
   const [avatarOpen, setAvatarOpen] = useState(false);
@@ -122,17 +122,22 @@ export function RootLayout() {
         .toUpperCase()
     : user?.email?.[0]?.toUpperCase() || "?";
 
-  const connectionState = vaultStatus.isError
-    ? "Disconnected"
-    : vaultStatus.data?.health === "degraded"
-      ? "Degraded"
-      : "Connected";
+  const connectionState =
+    vaultStatus.isFetching && (vaultStatus.isError || !vaultStatus.data)
+      ? "Reconnecting"
+      : vaultStatus.isError
+        ? "Disconnected"
+        : vaultStatus.data?.health === "degraded"
+          ? "Degraded"
+          : "Connected";
   const connectionBadgeClass =
     connectionState === "Connected"
       ? "border-emerald-500/40 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300"
       : connectionState === "Degraded"
         ? "border-amber-500/40 bg-amber-500/10 text-amber-700 dark:text-amber-300"
-        : "border-border bg-muted text-muted-foreground";
+        : connectionState === "Reconnecting"
+          ? "border-blue-500/40 bg-blue-500/10 text-blue-700 dark:text-blue-300"
+          : "border-border bg-muted text-muted-foreground";
 
   const isUnlimited = (limit: number) => !isFinite(limit);
 
@@ -251,6 +256,7 @@ export function RootLayout() {
             <VaultModePopover
               connectionState={connectionState}
               connectionBadgeClass={connectionBadgeClass}
+              onReconnect={() => vaultStatus.refetch()}
             />
           </div>
 

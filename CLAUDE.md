@@ -14,7 +14,7 @@ This is **not a monorepo/workspace**. Two independent packages share one git rep
 ## Stack
 
 React 19, React Router 7, React Query, Tailwind CSS 4, shadcn/ui, Vite 6.
-Deployed to Vercel via Git integration + CLI promotion.
+Deployed to Vercel via Git integration.
 
 ## Dev
 
@@ -24,31 +24,39 @@ npm run dev       # Vite dev server on :5173, proxies /api → localhost:3000
 npm run build     # production build → dist/
 ```
 
+## Branches
+
+| Branch | Purpose                           | Deploys to                               |
+| ------ | --------------------------------- | ---------------------------------------- |
+| `dev`  | All development work happens here | Preview (`context-vault-app.vercel.app`) |
+| `main` | Production-ready code only        | Production (`app.context-vault.com`)     |
+
+**Normal flow:**
+
+```
+work on dev → git push origin dev → verify on context-vault-app.vercel.app
+  → merge dev into main → auto-deploys to production
+```
+
+Merging `dev` into `main` IS the production deploy — treat it with the same care as shipping.
+
 ## Deploy
 
-### Normal flow
-
-```
-git push origin main   →  auto-deploys to preview (Vercel Git integration)
-                           human verifies preview
-vercel --prod          →  promote to production
-```
-
-- **Preview (stable):** `https://context-vault-app-git-main-klarhimmel.vercel.app` — always reflects latest `main`
-- **Production:** `https://app.context-vault.com`
-- `vercel --prod` is the only gate to production — run it only after human sign-off on preview
-
-### Ad-hoc local preview
+### Shipping to production
 
 ```bash
-vercel   # deploy from local without committing — useful for quick experiments
+git checkout main
+git merge dev --no-ff
+git push origin main     # triggers Vercel auto-deploy to production
+git checkout dev
 ```
 
 ### Vercel project
 
 Project: `context-vault-app` | Org: `klarhimmel`
 Project ID: `prj_BadSVacqViIZ2xt29rO8vfU8nQvc`
-Production Branch in Vercel settings: `release` (never pushed to — prevents any auto-prod deploy)
+Production Branch in Vercel settings: `main`
+Preview branch: `dev` → aliased to `context-vault-app.vercel.app`
 Env vars live in Vercel dashboard. Never commit `.env.local`.
 
 ## Commit prefixes
@@ -63,15 +71,19 @@ Env vars live in Vercel dashboard. Never commit `.env.local`.
 
 ## Hotfixes
 
-Fix on `main` → `git push` → verify on preview URL → `vercel --prod`.
-The preview auto-deploys on push so you can verify immediately without a manual `vercel` step.
-Only skip preview verification if the site is completely down and every second counts.
+Fix directly on `main` → `git push origin main` → auto-deploys to production.
+Only skip `dev` verification if the site is completely down and every second counts.
+After the hotfix, merge `main` back into `dev` to keep branches in sync:
+
+```bash
+git checkout dev && git merge main && git push origin dev
+```
 
 ## Features
 
 Open a GitHub Issue with a clear "done when..." before writing code.
-All work on `main` — no long-lived branches. Short-lived branches only for risky/experimental work, merge with `--no-ff`.
-Push early and often to `main` → preview auto-updates → verify → `vercel --prod` when ready.
+All work on `dev`. Short-lived feature branches off `dev` only for risky/experimental work, merge with `--no-ff`.
+Push early and often to `dev` → preview auto-updates → verify → merge to `main` when ready.
 
 ## Testing
 

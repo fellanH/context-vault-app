@@ -1114,10 +1114,19 @@ export function createManagementRoutes(ctx) {
 
   // NOTE: Import routes (single + bulk) are in vault-api.js with standard auth middleware
 
-  /** Export vault entries (supports pagination via ?limit=N&offset=N) */
+  /** Export vault entries (supports ?category=, ?kind=, ?since=, ?until=, ?limit=N&offset=N) */
   api.get("/api/vault/export", async (c) => {
     const user = await requireAuth(c);
     if (!user) return c.json({ error: "Unauthorized" }, 401);
+
+    // Enforce tier export access
+    const limits = getTierLimits(user.tier);
+    if (!limits.exportEnabled) {
+      return c.json(
+        { error: "Export is not available on the free tier. Upgrade to Pro." },
+        403,
+      );
+    }
 
     const userCtx = await getCachedUserCtx(ctx, user, VAULT_MASTER_SECRET);
 
@@ -1128,24 +1137,58 @@ export function createManagementRoutes(ctx) {
     const limit = Math.max(1, Math.min(parseInt(rawLimit, 10) || 100, 1000));
     const offset = Math.max(0, parseInt(rawOffset, 10) || 0);
 
-    const whereClause = `WHERE user_id = ? OR user_id IS NULL`;
+    // Filter params
+    const filterCategory = c.req.query("category") || null;
+    const filterKind = c.req.query("kind") || null;
+    const filterSince = c.req.query("since") || null;
+    const filterUntil = c.req.query("until") || null;
+
+    const conditions = ["(user_id = ? OR user_id IS NULL)"];
+    const baseParams = [user.userId];
+
+    if (filterKind) {
+      conditions.push("kind = ?");
+      baseParams.push(filterKind);
+    } else if (filterCategory) {
+      // Map category to its known kinds
+      const categoryKinds = {
+        knowledge: ["insight", "decision", "pattern", "reference"],
+        entity: ["project", "contact", "tool"],
+        event: ["session", "log"],
+      };
+      const kinds = categoryKinds[filterCategory];
+      if (kinds) {
+        conditions.push(`kind IN (${kinds.map(() => "?").join(",")})`);
+        baseParams.push(...kinds);
+      }
+    }
+    if (filterSince) {
+      conditions.push("created_at >= ?");
+      baseParams.push(filterSince);
+    }
+    if (filterUntil) {
+      conditions.push("created_at <= ?");
+      baseParams.push(filterUntil);
+    }
+
+    const whereClause = `WHERE ${conditions.join(" AND ")}`;
     const selectCols = `id, kind, title, body, tags, source, created_at, identity_key, expires_at, meta, body_encrypted, title_encrypted, meta_encrypted, iv`;
 
     const total = userCtx.db
       .prepare(`SELECT COUNT(*) as c FROM vault ${whereClause}`)
-      .get(user.userId).c;
+      .get(...baseParams).c;
 
     const rows = paginated
       ? userCtx.db
           .prepare(
             `SELECT ${selectCols} FROM vault ${whereClause} ORDER BY created_at ASC LIMIT ? OFFSET ?`,
           )
-          .all(user.userId, limit, offset)
+          .all(...baseParams, limit, offset)
       : userCtx.db
           .prepare(
             `SELECT ${selectCols} FROM vault ${whereClause} ORDER BY created_at ASC`,
           )
-          .all(user.userId);
+          .all(...baseParams);
 
     const masterSecret = process.env.VAULT_MASTER_SECRET;
     const clientKeyShare = user.clientKeyShare || null;

@@ -16,6 +16,7 @@ import {
 import { EntryInspector } from "../components/EntryInspector";
 import { NewEntryDialog } from "../components/NewEntryDialog";
 import { EmptyState } from "../components/EmptyState";
+import { ErrorState } from "../components/ErrorState";
 import {
   Select,
   SelectContent,
@@ -33,7 +34,7 @@ export function Entities() {
   const [showNewEntry, setShowNewEntry] = useState(false);
   const [page, setPage] = useState(0);
 
-  const { data, isLoading, isError } = useEntries({
+  const { data, isLoading, isError, refetch } = useEntries({
     category: "entity",
     kind: kindFilter === "all" ? undefined : kindFilter,
     offset: page * PAGE_SIZE,
@@ -119,12 +120,11 @@ export function Entities() {
               ))}
             </div>
           ) : isError ? (
-            <div className="py-12 text-center text-muted-foreground">
-              <p className="text-sm">Failed to load entries</p>
-              <p className="text-xs mt-1">
-                Check your connection and try again
-              </p>
-            </div>
+            <ErrorState
+              title="Failed to load entries"
+              description="The server returned an error. Check your connection and try again."
+              onRetry={() => refetch()}
+            />
           ) : total === 0 && !searchQuery && kindFilter === "all" ? (
             <EmptyState
               icon={Users}

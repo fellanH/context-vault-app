@@ -630,6 +630,10 @@ export function createManagementRoutes(ctx) {
 
     const stmts = prepareMetaStatements(getMetaDb());
     const requestsToday = stmts.countUsageToday.get(user.userId, "mcp_request");
+    const requestsThisWeek = stmts.countUsageThisWeek.get(
+      user.userId,
+      "mcp_request",
+    );
     const limits = getTierLimits(user.tier);
 
     const userCtx = await getCachedUserCtx(ctx, user, VAULT_MASTER_SECRET);
@@ -659,6 +663,7 @@ export function createManagementRoutes(ctx) {
       },
       usage: {
         requestsToday: requestsToday.c,
+        requestsThisWeek: requestsThisWeek.c,
         entriesUsed: entryCount,
         storageMb: Math.round((storageBytes / (1024 * 1024)) * 100) / 100,
       },

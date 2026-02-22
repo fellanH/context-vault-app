@@ -46,6 +46,7 @@ export interface UsageResponse {
   entries: { used: number; limit: number };
   storage: { usedMb: number; limitMb: number };
   requestsToday: { used: number; limit: number };
+  requestsThisWeek: { used: number };
   apiKeys: { active: number; limit: number };
 }
 
@@ -120,6 +121,7 @@ export interface ApiUsageResponse {
   };
   usage: {
     requestsToday: number;
+    requestsThisWeek: number;
     entriesUsed: number;
     storageMb: number;
   };
@@ -316,6 +318,9 @@ export function transformUsage(
     requestsToday: {
       used: raw.usage.requestsToday,
       limit: numOrMax(raw.limits.requestsPerDay),
+    },
+    requestsThisWeek: {
+      used: raw.usage.requestsThisWeek ?? 0,
     },
     apiKeys: {
       active: apiKeyCount,

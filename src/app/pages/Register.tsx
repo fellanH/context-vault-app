@@ -204,7 +204,9 @@ export function Register() {
           meta: extractCustomMeta(meta),
         });
         succeeded++;
-      } catch {}
+      } catch {
+        // skip malformed entry
+      }
       setImportCurrent(i + 1);
       setImportProgress(((i + 1) / files.length) * 100);
     }

@@ -87,6 +87,26 @@ export function useCreateEntry() {
   });
 }
 
+export function useUpdateEntry() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({
+      id,
+      ...data
+    }: {
+      id: string;
+      title?: string;
+      body?: string;
+      tags?: string[];
+      source?: string;
+    }) => api.put<ApiEntry>(`/vault/entries/${id}`, data),
+    onSuccess: (_data, { id }) => {
+      qc.invalidateQueries({ queryKey: ["entries"] });
+      qc.invalidateQueries({ queryKey: ["entry", id] });
+    },
+  });
+}
+
 export function useDeleteEntry() {
   const qc = useQueryClient();
   return useMutation({

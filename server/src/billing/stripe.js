@@ -111,22 +111,22 @@ export async function verifyWebhookEvent(body, signature) {
 
 const TIER_LIMITS = {
   free: {
-    maxEntries: 500,
-    storageMb: 10,
+    maxEntries: Infinity,
+    storageMb: 50,
     requestsPerDay: 200,
     apiKeys: 1,
-    exportEnabled: false,
+    exportEnabled: true,
   },
   pro: {
     maxEntries: Infinity,
-    storageMb: 1024,
+    storageMb: 5120,
     requestsPerDay: Infinity,
     apiKeys: Infinity,
     exportEnabled: true,
   },
   team: {
     maxEntries: Infinity,
-    storageMb: 5120,
+    storageMb: 20480,
     requestsPerDay: Infinity,
     apiKeys: Infinity,
     exportEnabled: true,

@@ -8,9 +8,8 @@ import {
   CardTitle,
 } from "../../components/ui/card";
 import { Label } from "../../components/ui/label";
-import { Badge } from "../../components/ui/badge";
 import { Input } from "../../components/ui/input";
-import { Upload, Download, Trash2, Lock, Loader2 } from "lucide-react";
+import { Upload, Download, Trash2, Loader2 } from "lucide-react";
 import { useAuth } from "../../lib/auth";
 import { useExportVault, useDeleteAccount, useRawUsage } from "../../lib/hooks";
 import { toast } from "sonner";
@@ -62,8 +61,6 @@ export function DataManagement() {
     });
   };
 
-  const exportEnabled = rawUsage?.limits.exportEnabled ?? false;
-
   return (
     <div className="p-6 max-w-3xl mx-auto space-y-6">
       <div>
@@ -101,31 +98,19 @@ export function DataManagement() {
           </div>
         </CardHeader>
         <CardContent>
-          {!exportEnabled ? (
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-2">
-                <Lock className="size-4 text-muted-foreground" />
-                <span className="text-sm text-muted-foreground">
-                  Export is available on Pro and Team plans.
-                </span>
-              </div>
-              <Badge variant="secondary">Upgrade to Pro</Badge>
-            </div>
-          ) : (
-            <Button
-              size="sm"
-              variant="outline"
-              onClick={handleExport}
-              disabled={exporting}
-            >
-              {exporting ? (
-                <Loader2 className="size-3.5 animate-spin mr-1.5" />
-              ) : (
-                <Download className="size-3.5 mr-1.5" />
-              )}
-              Download vault data
-            </Button>
-          )}
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={handleExport}
+            disabled={exporting}
+          >
+            {exporting ? (
+              <Loader2 className="size-3.5 animate-spin mr-1.5" />
+            ) : (
+              <Download className="size-3.5 mr-1.5" />
+            )}
+            Download vault data
+          </Button>
         </CardContent>
       </Card>
 

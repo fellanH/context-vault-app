@@ -1051,14 +1051,6 @@ export function createManagementRoutes(ctx) {
     const user = requireAuth(c);
     if (!user) return c.json({ error: "Unauthorized" }, 401);
 
-    const limits = getTierLimits(user.tier);
-    if (!limits.exportEnabled) {
-      return c.json(
-        { error: "Export is not available on the free tier. Upgrade to Pro." },
-        403,
-      );
-    }
-
     const userCtx = await getCachedUserCtx(ctx, user, VAULT_MASTER_SECRET);
 
     // Pagination params (optional — omit for full export, backward compat)

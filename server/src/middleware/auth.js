@@ -13,6 +13,28 @@ import {
 } from "../auth/meta-db.js";
 import { verifySessionToken } from "../auth/session.js";
 
+/** Derive a short, readable operation name from request path + method. */
+function deriveOperation(path, method) {
+  if (path === "/mcp" || path.startsWith("/mcp?")) return "mcp";
+  if (path.includes("/vault/search")) return "vault:search";
+  if (path.includes("/vault/export")) return "vault:export";
+  if (path.includes("/vault/import")) return "vault:import";
+  if (path.includes("/vault/status")) return "vault:status";
+  if (path.includes("/vault/entries")) {
+    const hasId = /\/vault\/entries\/[^/]+/.test(path);
+    if (hasId) {
+      if (method === "GET") return "vault:read";
+      if (method === "PUT" || method === "PATCH") return "vault:update";
+      if (method === "DELETE") return "vault:delete";
+    } else {
+      if (method === "GET") return "vault:list";
+      if (method === "POST") return "vault:create";
+    }
+  }
+  // Fallback: first two path segments
+  return path.split("/").filter(Boolean).slice(0, 2).join("/") || "api";
+}
+
 /**
  * Hono middleware that requires a valid API key via Authorization: Bearer.
  * Used exclusively by the /mcp endpoint.
@@ -42,6 +64,14 @@ export function bearerAuth() {
     }
 
     c.set("user", user);
+
+    // Fire-and-forget: log API key activity
+    try {
+      const stmts = prepareMetaStatements(getMetaDb());
+      const operation = deriveOperation(c.req.path, c.req.method);
+      stmts.logKeyActivity.run(user.userId, user.keyId, operation, "success");
+    } catch {}
+
     await next();
   };
 }
@@ -88,6 +118,19 @@ export function cookieOrBearerAuth() {
           user.clientKeyShare = vaultSecret;
         }
         c.set("user", user);
+
+        // Fire-and-forget: log API key activity
+        try {
+          const stmts = prepareMetaStatements(getMetaDb());
+          const operation = deriveOperation(c.req.path, c.req.method);
+          stmts.logKeyActivity.run(
+            user.userId,
+            user.keyId,
+            operation,
+            "success",
+          );
+        } catch {}
+
         return next();
       }
     }

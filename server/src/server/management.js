@@ -245,6 +245,37 @@ export function createManagementRoutes(ctx) {
     );
   });
 
+  /** Get per-key request activity log (last 50 by default, paginated) */
+  api.get("/api/keys/:id/activity", async (c) => {
+    const user = await requireAuth(c);
+    if (!user) return c.json({ error: "Unauthorized" }, 401);
+
+    const keyId = c.req.param("id");
+    const limit = Math.min(
+      parseInt(c.req.query("limit") || "50", 10) || 50,
+      200,
+    );
+    const offset = parseInt(c.req.query("offset") || "0", 10) || 0;
+
+    const stmts = prepareMetaStatements(getMetaDb());
+
+    // Verify key belongs to this user
+    const userKeys = stmts.listUserKeys.all(user.userId);
+    if (!userKeys.some((k) => k.id === keyId)) {
+      return c.json({ error: "Key not found" }, 404);
+    }
+
+    const logs = stmts.listKeyActivity.all(keyId, limit, offset);
+    const total = stmts.countKeyActivity.get(keyId).c;
+
+    // Occasional cleanup of old entries (non-critical)
+    try {
+      stmts.pruneOldActivity.run();
+    } catch {}
+
+    return c.json({ logs, total, limit, offset });
+  });
+
   /** Delete an API key */
   api.delete("/api/keys/:id", async (c) => {
     const user = await requireAuth(c);

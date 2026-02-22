@@ -17,8 +17,17 @@ import {
   Trash2,
   Loader2,
   AlertTriangle,
+  ChevronDown,
+  ChevronUp,
+  Activity,
 } from "lucide-react";
-import { useApiKeys, useCreateApiKey, useDeleteApiKey } from "../../lib/hooks";
+import {
+  useApiKeys,
+  useCreateApiKey,
+  useDeleteApiKey,
+  useKeyActivity,
+} from "../../lib/hooks";
+import type { ApiKey } from "../../lib/types";
 import { toast } from "sonner";
 
 const SEVEN_DAYS_MS = 7 * 24 * 60 * 60 * 1000;
@@ -59,6 +68,192 @@ function ScopeBadges({ scopes }: { scopes: string[] }) {
         </Badge>
       ))}
     </>
+  );
+}
+
+function formatRelativeTime(iso: string) {
+  const ms = Date.now() - new Date(iso).getTime();
+  const secs = Math.floor(ms / 1000);
+  if (secs < 60) return "just now";
+  const mins = Math.floor(secs / 60);
+  if (mins < 60) return `${mins}m ago`;
+  const hours = Math.floor(mins / 60);
+  if (hours < 24) return `${hours}h ago`;
+  const days = Math.floor(hours / 24);
+  return `${days}d ago`;
+}
+
+function KeyActivityPanel({ keyId }: { keyId: string }) {
+  const [offset, setOffset] = useState(0);
+  const LIMIT = 50;
+  const { data, isLoading } = useKeyActivity(keyId, {
+    limit: LIMIT,
+    offset,
+  });
+
+  if (isLoading) {
+    return (
+      <div className="pt-2 pb-1 space-y-1">
+        {[1, 2, 3].map((i) => (
+          <div key={i} className="h-6 bg-muted rounded animate-pulse" />
+        ))}
+      </div>
+    );
+  }
+
+  if (!data || data.logs.length === 0) {
+    return (
+      <p className="text-xs text-muted-foreground py-2">
+        No requests logged yet. Activity appears once this key is used.
+      </p>
+    );
+  }
+
+  const hasMore = offset + data.logs.length < data.total;
+  const hasPrev = offset > 0;
+
+  return (
+    <div className="pt-2 space-y-0.5">
+      <div className="grid grid-cols-[1fr_auto_auto] gap-x-3 text-[10px] font-medium text-muted-foreground uppercase tracking-wide px-1 pb-1">
+        <span>Operation</span>
+        <span className="text-right">Time</span>
+        <span className="text-right">Status</span>
+      </div>
+      {data.logs.map((log, i) => (
+        <div
+          key={i}
+          className="grid grid-cols-[1fr_auto_auto] gap-x-3 items-center py-0.5 px-1 rounded text-xs hover:bg-muted/50"
+        >
+          <span className="font-mono truncate">{log.operation}</span>
+          <span className="text-muted-foreground whitespace-nowrap">
+            {formatRelativeTime(log.timestamp)}
+          </span>
+          <Badge
+            variant={log.status === "success" ? "secondary" : "destructive"}
+            className="text-[9px] h-4 px-1"
+          >
+            {log.status}
+          </Badge>
+        </div>
+      ))}
+      {(hasMore || hasPrev) && (
+        <div className="flex items-center justify-between pt-1">
+          <span className="text-[10px] text-muted-foreground">
+            {offset + 1}–{offset + data.logs.length} of {data.total}
+          </span>
+          <div className="flex gap-1">
+            {hasPrev && (
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-6 text-xs px-2"
+                onClick={() => setOffset(Math.max(0, offset - LIMIT))}
+              >
+                Prev
+              </Button>
+            )}
+            {hasMore && (
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-6 text-xs px-2"
+                onClick={() => setOffset(offset + LIMIT)}
+              >
+                Next
+              </Button>
+            )}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function KeyRow({
+  apiKey,
+  now,
+  onDelete,
+  deleteIsPending,
+}: {
+  apiKey: ApiKey;
+  now: number;
+  onDelete: (id: string) => void;
+  deleteIsPending: boolean;
+}) {
+  const [showActivity, setShowActivity] = useState(false);
+
+  const expiringSoon =
+    apiKey.expiresAt &&
+    apiKey.expiresAt > new Date() &&
+    apiKey.expiresAt.getTime() - now < SEVEN_DAYS_MS;
+
+  return (
+    <div className="rounded-lg border border-border">
+      <div className="flex items-center justify-between py-2 px-3">
+        <div className="flex items-center gap-3 flex-wrap">
+          <div>
+            <p className="text-sm font-medium">{apiKey.name}</p>
+            <p className="text-xs text-muted-foreground font-mono">
+              {apiKey.prefix}...
+            </p>
+          </div>
+          <ScopeBadges scopes={apiKey.scopes} />
+          <Badge variant="secondary" className="text-[10px]">
+            {apiKey.createdAt.toLocaleDateString()}
+          </Badge>
+          <Badge variant="outline" className="text-[10px]">
+            {apiKey.lastUsedAt
+              ? `Used ${apiKey.lastUsedAt.toLocaleDateString()}`
+              : "Never used"}
+          </Badge>
+          {apiKey.expiresAt && (
+            <Badge
+              variant={expiringSoon ? "destructive" : "outline"}
+              className="text-[10px] gap-1"
+            >
+              {expiringSoon && <AlertTriangle className="size-2.5" />}
+              Expires {apiKey.expiresAt.toLocaleDateString()}
+            </Badge>
+          )}
+        </div>
+        <div className="flex items-center gap-1">
+          <Button
+            variant="ghost"
+            size="sm"
+            className="h-7 px-2 text-xs text-muted-foreground gap-1"
+            onClick={() => setShowActivity((v) => !v)}
+          >
+            <Activity className="size-3" />
+            {showActivity ? (
+              <ChevronUp className="size-3" />
+            ) : (
+              <ChevronDown className="size-3" />
+            )}
+          </Button>
+          <Button
+            variant="ghost"
+            size="icon"
+            className="size-8 text-muted-foreground hover:text-destructive"
+            onClick={() => onDelete(apiKey.id)}
+            disabled={deleteIsPending}
+          >
+            {deleteIsPending ? (
+              <Loader2 className="size-3.5 animate-spin" />
+            ) : (
+              <Trash2 className="size-3.5" />
+            )}
+          </Button>
+        </div>
+      </div>
+      {showActivity && (
+        <div className="border-t border-border px-3 pb-3">
+          <p className="text-[10px] font-medium text-muted-foreground uppercase tracking-wide pt-2 pb-1">
+            Recent Activity
+          </p>
+          <KeyActivityPanel keyId={apiKey.id} />
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -335,61 +530,15 @@ export function ApiKeys() {
             </p>
           ) : (
             <div className="space-y-2">
-              {keys.map((key) => {
-                const expiringSoon =
-                  key.expiresAt &&
-                  key.expiresAt > new Date() &&
-                  key.expiresAt.getTime() - now < SEVEN_DAYS_MS;
-
-                return (
-                  <div
-                    key={key.id}
-                    className="flex items-center justify-between py-2 px-3 rounded-lg border border-border"
-                  >
-                    <div className="flex items-center gap-3 flex-wrap">
-                      <div>
-                        <p className="text-sm font-medium">{key.name}</p>
-                        <p className="text-xs text-muted-foreground font-mono">
-                          {key.prefix}...
-                        </p>
-                      </div>
-                      <ScopeBadges scopes={key.scopes} />
-                      <Badge variant="secondary" className="text-[10px]">
-                        {key.createdAt.toLocaleDateString()}
-                      </Badge>
-                      <Badge variant="outline" className="text-[10px]">
-                        {key.lastUsedAt
-                          ? `Used ${key.lastUsedAt.toLocaleDateString()}`
-                          : "Never used"}
-                      </Badge>
-                      {key.expiresAt && (
-                        <Badge
-                          variant={expiringSoon ? "destructive" : "outline"}
-                          className="text-[10px] gap-1"
-                        >
-                          {expiringSoon && (
-                            <AlertTriangle className="size-2.5" />
-                          )}
-                          Expires {key.expiresAt.toLocaleDateString()}
-                        </Badge>
-                      )}
-                    </div>
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      className="size-8 text-muted-foreground hover:text-destructive"
-                      onClick={() => deleteKey(key.id)}
-                      disabled={deleteMutation.isPending}
-                    >
-                      {deleteMutation.isPending ? (
-                        <Loader2 className="size-3.5 animate-spin" />
-                      ) : (
-                        <Trash2 className="size-3.5" />
-                      )}
-                    </Button>
-                  </div>
-                );
-              })}
+              {keys.map((key) => (
+                <KeyRow
+                  key={key.id}
+                  apiKey={key}
+                  now={now}
+                  onDelete={deleteKey}
+                  deleteIsPending={deleteMutation.isPending}
+                />
+              ))}
             </div>
           )}
         </CardContent>

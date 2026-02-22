@@ -225,10 +225,24 @@ export function useImportEntry() {
   });
 }
 
-export function useExportVault() {
+export interface ExportFilters {
+  category?: string;
+  kind?: string;
+  since?: string;
+  until?: string;
+}
+
+export function useExportVault(filters: ExportFilters = {}) {
+  const params = new URLSearchParams();
+  if (filters.category) params.set("category", filters.category);
+  if (filters.kind) params.set("kind", filters.kind);
+  if (filters.since) params.set("since", filters.since);
+  if (filters.until) params.set("until", filters.until);
+  const qs = params.toString();
   return useQuery({
-    queryKey: ["export"],
-    queryFn: () => api.get<{ entries: ApiEntry[] }>("/vault/export"),
+    queryKey: ["export", filters],
+    queryFn: () =>
+      api.get<{ entries: ApiEntry[] }>(`/vault/export${qs ? `?${qs}` : ""}`),
     enabled: false, // manual trigger only
   });
 }
@@ -237,7 +251,10 @@ export function useExportVault() {
 
 interface VaultStatusOpts {
   enabled?: boolean;
-  refetchInterval?: number;
+  refetchInterval?:
+    | number
+    | false
+    | ((query: { state: { status: string } }) => number | false);
 }
 
 export function useVaultStatus(opts: VaultStatusOpts = {}) {

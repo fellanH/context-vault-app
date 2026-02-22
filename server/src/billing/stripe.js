@@ -134,7 +134,7 @@ const TIER_LIMITS = {
     storageMb: 50,
     requestsPerDay: 200,
     apiKeys: Infinity,
-    exportEnabled: true,
+    exportEnabled: false,
   },
   pro: {
     maxEntries: Infinity,

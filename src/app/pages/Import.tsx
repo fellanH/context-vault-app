@@ -255,6 +255,21 @@ export function ImportPage() {
             />
           </div>
 
+          {/* Markdown format reference */}
+          <details className="text-xs rounded-md border bg-muted/40">
+            <summary className="cursor-pointer px-3 py-2 text-muted-foreground hover:text-foreground transition-colors select-none">
+              Expected .md format
+            </summary>
+            <pre className="px-3 pb-3 pt-1 text-[11px] leading-relaxed font-mono text-muted-foreground overflow-x-auto whitespace-pre">{`---
+kind: insight          # required — insight | event | entity
+title: My note         # optional
+tags: [tag1, tag2]     # optional
+source: obsidian       # optional
+identity_key: my-key   # optional — dedup on reimport
+---
+Entry content here`}</pre>
+          </details>
+
           {importing && (
             <div className="space-y-1">
               <p className="text-xs text-muted-foreground">
@@ -305,14 +320,42 @@ export function ImportPage() {
             <summary className="cursor-pointer text-muted-foreground hover:text-foreground transition-colors">
               Import from JSON instead
             </summary>
-            <div className="mt-3 space-y-2">
+            <div className="mt-3 space-y-3">
+              {/* Format reference — shown before file pick */}
+              <details className="rounded-md border bg-muted/40">
+                <summary className="cursor-pointer px-3 py-2 text-muted-foreground hover:text-foreground transition-colors select-none">
+                  Expected format
+                </summary>
+                <pre className="px-3 pb-3 pt-1 text-[11px] leading-relaxed font-mono text-muted-foreground overflow-x-auto whitespace-pre">{`[
+  {
+    "kind": "insight",        // required — insight | event | entity
+    "body": "Entry text",     // required
+    "title": "My note",       // optional
+    "tags": ["tag1", "tag2"], // optional
+    "source": "import",       // optional
+    "identity_key": "my-key", // optional — dedup on reimport
+    "expires_at": null        // optional — ISO 8601 date
+  }
+]`}</pre>
+              </details>
+
               <Textarea
                 id="jsonInput"
-                placeholder={`[\n  {\n    "category": "knowledge",\n    "kind": "insight",\n    "title": "...",\n    "body": "...",\n    "tags": ["tag1"]\n  }\n]`}
+                placeholder={`[\n  {\n    "kind": "insight",\n    "title": "...",\n    "body": "...",\n    "tags": ["tag1"]\n  }\n]`}
                 value={jsonInput}
                 onChange={(e) => setJsonInput(e.target.value)}
                 className="min-h-[160px] font-mono text-xs"
               />
+
+              {importing && (
+                <div className="space-y-1">
+                  <p className="text-xs text-muted-foreground">
+                    {importCurrent} / {importTotal}
+                  </p>
+                  <Progress value={importProgress} className="h-1.5" />
+                </div>
+              )}
+
               <div className="flex gap-2">
                 <Button
                   size="sm"
@@ -322,7 +365,7 @@ export function ImportPage() {
                   {importing ? (
                     <>
                       <Loader2 className="size-3.5 animate-spin mr-1.5" />
-                      {importCurrent}/{importTotal}
+                      Importing…
                     </>
                   ) : (
                     "Import JSON"

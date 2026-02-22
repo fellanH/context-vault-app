@@ -13,7 +13,12 @@ import {
   SelectTrigger,
   SelectValue,
 } from "../components/ui/select";
-import { Search as SearchIcon, ChevronDown, ChevronUp } from "lucide-react";
+import {
+  Search as SearchIcon,
+  ChevronDown,
+  ChevronUp,
+  AlertTriangle,
+} from "lucide-react";
 import { EntryInspector } from "../components/EntryInspector";
 import { useSearch } from "../lib/hooks";
 import type { SearchResult } from "../lib/types";
@@ -140,6 +145,29 @@ export function Search() {
           </div>
         )}
       </div>
+
+      {searchMutation.isError && (
+        <div className="flex items-start gap-3 rounded-lg border border-destructive/30 bg-destructive/5 p-4">
+          <AlertTriangle className="size-4 text-destructive shrink-0 mt-0.5" />
+          <div className="flex-1 min-w-0">
+            <p className="text-sm font-medium text-destructive">
+              Search failed
+            </p>
+            <p className="text-xs text-muted-foreground mt-0.5">
+              {searchMutation.error instanceof Error
+                ? searchMutation.error.message
+                : "An error occurred. Check your connection and try again."}
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={() => handleSearch()}
+            className="text-xs text-muted-foreground hover:text-foreground transition-colors shrink-0"
+          >
+            Retry
+          </button>
+        </div>
+      )}
 
       {searchMutation.isPending && (
         <div className="space-y-3">

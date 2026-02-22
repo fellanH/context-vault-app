@@ -336,24 +336,30 @@ export function createManagementRoutes(ctx) {
           .run(profile.googleId, existingUser.id);
       }
 
-      // Only auto-create a key if the user has none yet.
-      // Avoids silently replacing MCP-configured keys on repeated OAuth sign-ins.
+      // Always issue a new key on OAuth sign-in so returning users can sign in
+      // on any device. If the user is at their tier key limit, rotate by deleting
+      // the oldest key first (listUserKeys orders DESC so last element is oldest).
       const keys = stmts.listUserKeys.all(existingUser.id);
-      if (keys.length === 0) {
-        apiKeyRaw = generateApiKey();
-        const hash = hashApiKey(apiKeyRaw);
-        const prefix = keyPrefix(apiKeyRaw);
-        const keyId = randomUUID();
-        stmts.createApiKey.run(
-          keyId,
-          existingUser.id,
-          hash,
-          prefix,
-          "default",
-          null,
-        );
+      const tierLimits = getTierLimits(existingUser.tier || "free");
+      if (
+        tierLimits.apiKeys !== Infinity &&
+        keys.length >= tierLimits.apiKeys
+      ) {
+        const oldest = keys[keys.length - 1];
+        stmts.deleteApiKey.run(oldest.id, existingUser.id);
       }
-      // else: user has existing keys — leave them untouched; apiKeyRaw stays undefined
+      apiKeyRaw = generateApiKey();
+      const hash = hashApiKey(apiKeyRaw);
+      const prefix = keyPrefix(apiKeyRaw);
+      const keyId = randomUUID();
+      stmts.createApiKey.run(
+        keyId,
+        existingUser.id,
+        hash,
+        prefix,
+        "default",
+        null,
+      );
     } else {
       // New user — create account with google_id + split-authority encryption
       const userId = randomUUID();
@@ -401,12 +407,6 @@ export function createManagementRoutes(ctx) {
         );
         return c.redirect(`${appUrl}/login?error=registration_failed`);
       }
-    }
-
-    // Existing user with existing keys — redirect to app root without issuing a new key.
-    // Their existing key (stored in browser from a prior session) remains valid.
-    if (!apiKeyRaw) {
-      return c.redirect(appUrl);
     }
 
     // Redirect to app with the API key as a token (one-time, via URL fragment)

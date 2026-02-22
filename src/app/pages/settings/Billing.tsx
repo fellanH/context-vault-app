@@ -22,10 +22,10 @@ const plans = [
     price: "$0",
     features: [
       "Hosted vault & MCP",
-      "500 entries",
-      "10 MB storage",
+      "Unlimited entries",
+      "50 MB storage",
       "200 requests/day",
-      "1 API key",
+      "Unlimited API keys",
       "Community support",
     ],
   },
@@ -35,7 +35,7 @@ const plans = [
     period: "/mo",
     features: [
       "Unlimited entries",
-      "1 GB storage",
+      "5 GB storage",
       "Multi-device access",
       "Hosted MCP (always on)",
       "Unlimited API keys",
@@ -49,7 +49,7 @@ const plans = [
     period: "/mo",
     features: [
       "Unlimited entries",
-      "10 GB storage",
+      "20 GB storage",
       "Unlimited requests",
       "Unlimited API keys",
       "Team sharing",

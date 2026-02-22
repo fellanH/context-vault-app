@@ -31,7 +31,6 @@ export function ApiKeys() {
   const [showCreate, setShowCreate] = useState(false);
   const [copied, setCopied] = useState<string | null>(null);
   const [newlyCreatedKey, setNewlyCreatedKey] = useState<string | null>(null);
-
   const createKey = () => {
     if (!newKeyName.trim()) return;
     createMutation.mutate(
@@ -72,24 +71,22 @@ export function ApiKeys() {
     setTimeout(() => setCopied(null), 2000);
   };
 
-  const copyConfig = () =>
-    copyToClipboard(
-      JSON.stringify(
-        {
-          mcpServers: {
-            "context-vault": {
-              url: "https://api.context-vault.com/mcp",
-              headers: {
-                Authorization: "Bearer YOUR_API_KEY",
-              },
-            },
+  const hostedConfig = JSON.stringify(
+    {
+      mcpServers: {
+        "context-vault": {
+          url: "https://api.context-vault.com/mcp",
+          headers: {
+            Authorization: "Bearer YOUR_API_KEY",
           },
         },
-        null,
-        2,
-      ),
-      "Config",
-    );
+      },
+    },
+    null,
+    2,
+  );
+
+  const copyConfig = () => copyToClipboard(hostedConfig, "Config");
 
   // Min date for the expiry picker = tomorrow
   const tomorrow = new Date();
@@ -296,16 +293,7 @@ export function ApiKeys() {
           </p>
           <div className="relative">
             <pre className="bg-muted p-4 rounded-lg text-xs font-mono overflow-x-auto">
-              {`{
-  "mcpServers": {
-    "context-vault": {
-      "url": "https://api.context-vault.com/mcp",
-      "headers": {
-        "Authorization": "Bearer YOUR_API_KEY"
-      }
-    }
-  }
-}`}
+              {hostedConfig}
             </pre>
             <Button
               variant="outline"
@@ -321,6 +309,10 @@ export function ApiKeys() {
               Copy
             </Button>
           </div>
+          <p className="text-xs text-muted-foreground">
+            Replace <code className="font-mono">YOUR_API_KEY</code> with a key
+            from above.
+          </p>
         </CardContent>
       </Card>
     </div>

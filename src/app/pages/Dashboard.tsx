@@ -13,10 +13,14 @@ import { useEntries, useUsage, useApiKeys } from "../lib/hooks";
 import { useAuth } from "../lib/auth";
 import {
   getOnboardingSteps,
+  getMigrationSteps,
   isOnboardingDismissed,
   dismissOnboarding,
   resetOnboarding,
   markExtensionInstalled,
+  getOnboardingMode,
+  setOnboardingMode,
+  type OnboardingMode,
 } from "../lib/onboarding";
 import { formatMegabytes, formatRelativeTime } from "../lib/format";
 import {
@@ -42,6 +46,8 @@ const STEP_ICONS: Record<string, React.ElementType> = {
   "connect-tools": Link2,
   "first-entry": Plus,
   "install-extension": ExternalLink,
+  "import-local-vault": Upload,
+  "switch-to-hosted-mcp": Link2,
 };
 
 const MCP_JSON_SNIPPET = `{
@@ -67,7 +73,14 @@ export function Dashboard() {
 
   const entriesUsed = usage?.entries.used ?? 0;
   const hasMcpActivity = (apiKeys ?? []).some((key) => Boolean(key.lastUsedAt));
-  const steps = getOnboardingSteps({ entriesUsed, hasMcpActivity });
+
+  const [onboardingMode, setOnboardingModeState] =
+    useState<OnboardingMode | null>(() => getOnboardingMode());
+
+  const steps =
+    onboardingMode === "migration"
+      ? getMigrationSteps({ entriesUsed, hasMcpActivity })
+      : getOnboardingSteps({ entriesUsed, hasMcpActivity });
 
   const [showOnboarding, setShowOnboarding] = useState(
     () => !isOnboardingDismissed(),
@@ -111,6 +124,11 @@ export function Dashboard() {
   const handleMarkExtensionInstalled = () => {
     markExtensionInstalled();
     setExtensionInstalled(true);
+  };
+
+  const handleSelectMode = (mode: OnboardingMode) => {
+    setOnboardingMode(mode);
+    setOnboardingModeState(mode);
   };
 
   const isUnlimited = (limit: number) => !Number.isFinite(limit);
@@ -178,9 +196,11 @@ export function Dashboard() {
             <div className="flex items-center justify-between">
               <div>
                 <CardTitle className="text-base">Getting Started</CardTitle>
-                <p className="text-xs text-muted-foreground mt-1">
-                  {completedCount} of {totalRequired} steps complete
-                </p>
+                {onboardingMode !== null && (
+                  <p className="text-xs text-muted-foreground mt-1">
+                    {completedCount} of {totalRequired} steps complete
+                  </p>
+                )}
               </div>
               <Button
                 variant="ghost"
@@ -193,81 +213,119 @@ export function Dashboard() {
             </div>
           </CardHeader>
           <CardContent>
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-              {steps.map((step) => {
-                const Icon = STEP_ICONS[step.id] || FileText;
-
-                return (
-                  <div
-                    key={step.id}
-                    className={`relative rounded-lg border p-4 space-y-3 transition-colors ${
-                      step.completed
-                        ? "border-primary/20 bg-primary/5"
-                        : "border-border hover:border-primary/30"
-                    }`}
+            {onboardingMode === null ? (
+              /* Mode selector — shown before the user picks a path */
+              <div className="space-y-3">
+                <p className="text-sm text-muted-foreground">
+                  How are you setting up Context Vault?
+                </p>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <button
+                    onClick={() => handleSelectMode("new")}
+                    className="text-left rounded-lg border border-border p-4 space-y-1.5 hover:border-primary/40 hover:bg-muted/40 transition-colors"
                   >
-                    <div className="flex items-center justify-between">
-                      <div
-                        className={`rounded-full p-2 ${
-                          step.completed
-                            ? "bg-primary/10 text-primary"
-                            : "bg-muted text-muted-foreground"
-                        }`}
-                      >
-                        {step.completed ? (
-                          <CircleCheck className="size-4" />
-                        ) : (
-                          <Icon className="size-4" />
+                    <p className="text-sm font-medium">
+                      I&apos;m new — set me up from scratch
+                    </p>
+                    <p className="text-xs text-muted-foreground">
+                      Start fresh. We&apos;ll walk you through connecting your
+                      AI tools.
+                    </p>
+                  </button>
+                  <button
+                    onClick={() => handleSelectMode("migration")}
+                    className="text-left rounded-lg border border-border p-4 space-y-1.5 hover:border-primary/40 hover:bg-muted/40 transition-colors"
+                  >
+                    <p className="text-sm font-medium">
+                      I use context-vault/core locally
+                    </p>
+                    <p className="text-xs text-muted-foreground">
+                      Already running core locally? Sync your vault and switch
+                      to hosted MCP.
+                    </p>
+                  </button>
+                </div>
+              </div>
+            ) : (
+              /* Step grid — shown after mode is selected */
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+                {steps.map((step) => {
+                  const Icon = STEP_ICONS[step.id] || FileText;
+
+                  return (
+                    <div
+                      key={step.id}
+                      className={`relative rounded-lg border p-4 space-y-3 transition-colors ${
+                        step.completed
+                          ? "border-primary/20 bg-primary/5"
+                          : "border-border hover:border-primary/30"
+                      }`}
+                    >
+                      <div className="flex items-center justify-between">
+                        <div
+                          className={`rounded-full p-2 ${
+                            step.completed
+                              ? "bg-primary/10 text-primary"
+                              : "bg-muted text-muted-foreground"
+                          }`}
+                        >
+                          {step.completed ? (
+                            <CircleCheck className="size-4" />
+                          ) : (
+                            <Icon className="size-4" />
+                          )}
+                        </div>
+                      </div>
+                      <div>
+                        <p
+                          className={`text-sm font-medium ${step.completed ? "text-muted-foreground line-through" : ""}`}
+                        >
+                          {step.label}
+                        </p>
+                        {step.description && (
+                          <p className="text-xs text-muted-foreground mt-0.5">
+                            {step.description}
+                          </p>
                         )}
                       </div>
-                    </div>
-                    <div>
-                      <p
-                        className={`text-sm font-medium ${step.completed ? "text-muted-foreground line-through" : ""}`}
-                      >
-                        {step.label}
-                      </p>
-                      {step.description && (
-                        <p className="text-xs text-muted-foreground mt-0.5">
-                          {step.description}
-                        </p>
+                      {!step.completed && step.action && (
+                        <Button
+                          variant="secondary"
+                          size="sm"
+                          className="w-full gap-1.5 text-xs"
+                          onClick={() => handleStepAction(step)}
+                        >
+                          {step.action === "copy-connect-command" &&
+                            (copiedCmd ? (
+                              <Check className="size-3" />
+                            ) : (
+                              <Copy className="size-3" />
+                            ))}
+                          {step.actionLabel || "Go"}
+                        </Button>
                       )}
+                      {!step.completed && step.id === "install-extension" && (
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="w-full text-xs text-muted-foreground"
+                          onClick={handleMarkExtensionInstalled}
+                        >
+                          Mark as installed
+                        </Button>
+                      )}
+                      {!step.completed &&
+                        (step.id === "connect-tools" ||
+                          step.id === "switch-to-hosted-mcp") && (
+                          <pre className="bg-muted p-2 rounded text-[10px] font-mono overflow-x-auto">
+                            {connectCommand}
+                          </pre>
+                        )}
                     </div>
-                    {!step.completed && step.action && (
-                      <Button
-                        variant="secondary"
-                        size="sm"
-                        className="w-full gap-1.5 text-xs"
-                        onClick={() => handleStepAction(step)}
-                      >
-                        {step.action === "copy-connect-command" &&
-                          (copiedCmd ? (
-                            <Check className="size-3" />
-                          ) : (
-                            <Copy className="size-3" />
-                          ))}
-                        {step.actionLabel || "Go"}
-                      </Button>
-                    )}
-                    {!step.completed && step.id === "install-extension" && (
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        className="w-full text-xs text-muted-foreground"
-                        onClick={handleMarkExtensionInstalled}
-                      >
-                        Mark as installed
-                      </Button>
-                    )}
-                    {!step.completed && step.id === "connect-tools" && (
-                      <pre className="bg-muted p-2 rounded text-[10px] font-mono overflow-x-auto">
-                        {connectCommand}
-                      </pre>
-                    )}
-                  </div>
-                );
-              })}
-            </div>
+                  );
+                })}
+              </div>
+            )}
           </CardContent>
         </Card>
       )}
@@ -374,7 +432,7 @@ export function Dashboard() {
                     <details className="group">
                       <summary className="text-sm cursor-pointer list-none flex items-center gap-1.5 text-muted-foreground hover:text-foreground transition-colors">
                         <ChevronDown className="size-3.5 transition-transform group-open:rotate-180" />
-                        Or configure manually (JSON)
+                        Or configure manually — Hosted MCP (JSON)
                       </summary>
                       <pre className="mt-2 bg-muted p-3 rounded-md text-[11px] font-mono overflow-x-auto">
                         {MCP_JSON_SNIPPET}

@@ -1,5 +1,5 @@
-import { useEffect } from "react";
-import { useSearchParams } from "react-router";
+import { useEffect, useState } from "react";
+import { useSearchParams, Link } from "react-router";
 import { Button } from "../../components/ui/button";
 import {
   Card,
@@ -10,7 +10,7 @@ import {
 import { Badge } from "../../components/ui/badge";
 import { UsageMeter } from "../../components/UsageMeter";
 import { TierBadge } from "../../components/TierBadge";
-import { Check, Loader2 } from "lucide-react";
+import { Check, Loader2, X } from "lucide-react";
 import { useAuth } from "../../lib/auth";
 import { useUsage, useCheckout, usePortal } from "../../lib/hooks";
 import { formatMegabytes } from "../../lib/format";
@@ -21,6 +21,7 @@ const plans = [
     tier: "free" as const,
     price: "$0",
     features: [
+      "Hosted vault & MCP",
       "500 entries",
       "10 MB storage",
       "200 requests/day",
@@ -35,9 +36,10 @@ const plans = [
     features: [
       "Unlimited entries",
       "1 GB storage",
-      "Unlimited requests",
+      "Multi-device access",
+      "Hosted MCP (always on)",
       "Unlimited API keys",
-      "Export/Import",
+      "Export & import",
       "Priority support",
     ],
   },
@@ -63,6 +65,14 @@ export function Billing() {
   const checkoutMutation = useCheckout();
   const portalMutation = usePortal();
   const [searchParams, setSearchParams] = useSearchParams();
+  const [showLocalBanner, setShowLocalBanner] = useState(
+    () => localStorage.getItem("cv-dismissed-local-banner") !== "true",
+  );
+
+  const handleDismissLocalBanner = () => {
+    localStorage.setItem("cv-dismissed-local-banner", "true");
+    setShowLocalBanner(false);
+  };
 
   useEffect(() => {
     if (searchParams.get("upgraded") === "true") {
@@ -202,6 +212,47 @@ export function Billing() {
           ) : null}
         </CardContent>
       </Card>
+
+      {showLocalBanner && (
+        <div className="relative rounded-lg border border-blue-200 bg-blue-50 p-4 text-sm dark:border-blue-800 dark:bg-blue-950/40">
+          <button
+            onClick={handleDismissLocalBanner}
+            className="absolute right-3 top-3 text-muted-foreground hover:text-foreground transition-colors"
+            aria-label="Dismiss"
+          >
+            <X className="size-4" />
+          </button>
+          <p className="font-medium text-blue-900 dark:text-blue-100 pr-6">
+            Already running context-vault/core locally?
+          </p>
+          <p className="mt-1 text-blue-800 dark:text-blue-200">
+            The hosted vault gives you what local can't:
+          </p>
+          <ul className="mt-2 space-y-1 text-blue-800 dark:text-blue-200">
+            {[
+              "Access from any device — not just localhost",
+              "Hosted MCP server that's always on, no process to run",
+              "Automatic cloud backup",
+              "Team sharing (Pro+ coming)",
+              "Web app, Chrome extension, search UI",
+            ].map((item) => (
+              <li key={item} className="flex items-start gap-2">
+                <Check className="size-3.5 mt-0.5 shrink-0 text-blue-600 dark:text-blue-400" />
+                {item}
+              </li>
+            ))}
+          </ul>
+          <p className="mt-3 text-blue-800 dark:text-blue-200">
+            Your local markdown files can be imported in one step.{" "}
+            <Link
+              to="/import"
+              className="font-medium underline underline-offset-2 hover:text-blue-900 dark:hover:text-blue-100 transition-colors"
+            >
+              Import from local vault →
+            </Link>
+          </p>
+        </div>
+      )}
 
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
         {plans.map((plan) => {

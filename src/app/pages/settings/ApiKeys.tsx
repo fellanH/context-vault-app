@@ -9,6 +9,7 @@ import {
 import { Input } from "../../components/ui/input";
 import { Label } from "../../components/ui/label";
 import { Badge } from "../../components/ui/badge";
+import { Checkbox } from "../../components/ui/checkbox";
 import {
   Copy,
   Check,
@@ -22,6 +23,45 @@ import { toast } from "sonner";
 
 const SEVEN_DAYS_MS = 7 * 24 * 60 * 60 * 1000;
 
+const SCOPE_OPTIONS = [
+  {
+    value: "vault:read",
+    label: "vault:read",
+    description: "Read entries, search, status",
+  },
+  {
+    value: "vault:write",
+    label: "vault:write",
+    description: "Create, update, delete entries",
+  },
+  {
+    value: "vault:export",
+    label: "vault:export",
+    description: "Export vault data",
+  },
+  { value: "mcp", label: "mcp", description: "MCP endpoint access" },
+  { value: "keys:read", label: "keys:read", description: "List API keys" },
+] as const;
+
+function ScopeBadges({ scopes }: { scopes: string[] }) {
+  if (scopes.includes("*")) {
+    return (
+      <Badge variant="secondary" className="text-[10px]">
+        Full access
+      </Badge>
+    );
+  }
+  return (
+    <>
+      {scopes.map((s) => (
+        <Badge key={s} variant="outline" className="text-[10px] font-mono">
+          {s}
+        </Badge>
+      ))}
+    </>
+  );
+}
+
 export function ApiKeys() {
   const { data: keys, isLoading } = useApiKeys();
   const createMutation = useCreateApiKey();
@@ -31,18 +71,38 @@ export function ApiKeys() {
   const [showCreate, setShowCreate] = useState(false);
   const [copied, setCopied] = useState<string | null>(null);
   const [newlyCreatedKey, setNewlyCreatedKey] = useState<string | null>(null);
+  const [scopeMode, setScopeMode] = useState<"full" | "custom">("full");
+  const [customScopes, setCustomScopes] = useState<string[]>([]);
+
+  // eslint-disable-next-line react-hooks/purity -- stable snapshot for expiry badge display
+  const now = Date.now();
+
+  const toggleScope = (scope: string) => {
+    setCustomScopes((prev) =>
+      prev.includes(scope) ? prev.filter((s) => s !== scope) : [...prev, scope],
+    );
+  };
+
   const createKey = () => {
     if (!newKeyName.trim()) return;
+    const scopes = scopeMode === "full" ? ["*"] : customScopes;
+    if (scopeMode === "custom" && scopes.length === 0) {
+      toast.error("Select at least one scope");
+      return;
+    }
     createMutation.mutate(
       {
         name: newKeyName.trim(),
         expires_at: newKeyExpiry || undefined,
+        scopes,
       },
       {
         onSuccess: (data) => {
           setNewlyCreatedKey(data.key);
           setNewKeyName("");
           setNewKeyExpiry("");
+          setScopeMode("full");
+          setCustomScopes([]);
           setShowCreate(false);
           toast.success(`API key "${newKeyName.trim()}" created`);
         },
@@ -182,6 +242,56 @@ export function ApiKeys() {
                   />
                 </div>
               </div>
+
+              {/* Scope selection */}
+              <div className="space-y-2">
+                <Label className="text-xs">Permissions</Label>
+                <div className="flex gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setScopeMode("full")}
+                    className={`px-3 py-1.5 rounded-md text-xs border transition-colors ${
+                      scopeMode === "full"
+                        ? "bg-primary text-primary-foreground border-primary"
+                        : "border-border text-muted-foreground hover:text-foreground"
+                    }`}
+                  >
+                    Full access
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setScopeMode("custom")}
+                    className={`px-3 py-1.5 rounded-md text-xs border transition-colors ${
+                      scopeMode === "custom"
+                        ? "bg-primary text-primary-foreground border-primary"
+                        : "border-border text-muted-foreground hover:text-foreground"
+                    }`}
+                  >
+                    Custom scopes
+                  </button>
+                </div>
+                {scopeMode === "custom" && (
+                  <div className="grid grid-cols-1 gap-2 pt-1">
+                    {SCOPE_OPTIONS.map(({ value, label, description }) => (
+                      <label
+                        key={value}
+                        className="flex items-center gap-2.5 cursor-pointer group"
+                      >
+                        <Checkbox
+                          checked={customScopes.includes(value)}
+                          onCheckedChange={() => toggleScope(value)}
+                          disabled={createMutation.isPending}
+                        />
+                        <span className="text-xs font-mono">{label}</span>
+                        <span className="text-xs text-muted-foreground">
+                          — {description}
+                        </span>
+                      </label>
+                    ))}
+                  </div>
+                )}
+              </div>
+
               <div className="flex gap-2">
                 <Button
                   size="sm"
@@ -200,6 +310,8 @@ export function ApiKeys() {
                   onClick={() => {
                     setShowCreate(false);
                     setNewKeyExpiry("");
+                    setScopeMode("full");
+                    setCustomScopes([]);
                   }}
                 >
                   Cancel
@@ -224,7 +336,6 @@ export function ApiKeys() {
           ) : (
             <div className="space-y-2">
               {keys.map((key) => {
-                const now = Date.now();
                 const expiringSoon =
                   key.expiresAt &&
                   key.expiresAt > new Date() &&
@@ -242,6 +353,7 @@ export function ApiKeys() {
                           {key.prefix}...
                         </p>
                       </div>
+                      <ScopeBadges scopes={key.scopes} />
                       <Badge variant="secondary" className="text-[10px]">
                         {key.createdAt.toLocaleDateString()}
                       </Badge>

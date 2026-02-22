@@ -10,6 +10,7 @@ import {
   getMetaDb,
   validateApiKey,
 } from "../auth/meta-db.js";
+import { hasScope, validateScopes } from "../auth/scopes.js";
 import {
   setSessionCookie,
   clearSessionCookie,
@@ -156,6 +157,16 @@ export function createManagementRoutes(ctx) {
     const user = await requireAuth(c);
     if (!user) return c.json({ error: "Unauthorized" }, 401);
 
+    if (!hasScope(user.scopes, "keys:read")) {
+      return c.json(
+        {
+          error: "Insufficient scope. Required: keys:read",
+          code: "FORBIDDEN",
+        },
+        403,
+      );
+    }
+
     const stmts = prepareMetaStatements(getMetaDb());
     const keys = stmts.listUserKeys.all(user.userId);
     return c.json({ keys });
@@ -185,6 +196,13 @@ export function createManagementRoutes(ctx) {
     const body = await c.req.json().catch(() => ({}));
     const name = body.name || "default";
 
+    // Validate scopes (default: full access)
+    const scopes = body.scopes ?? ["*"];
+    const scopeError = validateScopes(scopes);
+    if (scopeError) {
+      return c.json({ error: scopeError }, 400);
+    }
+
     let expires_at = null;
     if (body.expires_at) {
       const d = new Date(body.expires_at);
@@ -202,7 +220,15 @@ export function createManagementRoutes(ctx) {
     const prefix = keyPrefix(rawKey);
     const id = randomUUID();
 
-    stmts.createApiKey.run(id, user.userId, hash, prefix, name, expires_at);
+    stmts.createApiKey.run(
+      id,
+      user.userId,
+      hash,
+      prefix,
+      name,
+      JSON.stringify(scopes),
+      expires_at,
+    );
 
     // Return the raw key ONCE — it cannot be retrieved again
     return c.json(
@@ -211,6 +237,7 @@ export function createManagementRoutes(ctx) {
         key: rawKey,
         prefix,
         name,
+        scopes,
         expires_at,
         message: "Save this key — it will not be shown again.",
       },
@@ -398,7 +425,15 @@ export function createManagementRoutes(ctx) {
             userId,
           );
         }
-        stmts.createApiKey.run(keyId, userId, hash, prefix, "default", null);
+        stmts.createApiKey.run(
+          keyId,
+          userId,
+          hash,
+          prefix,
+          "default",
+          '["*"]',
+          null,
+        );
       });
 
       try {
@@ -509,7 +544,15 @@ export function createManagementRoutes(ctx) {
           userId,
         );
       }
-      stmts.createApiKey.run(keyId, userId, hash, prefix, "default", null);
+      stmts.createApiKey.run(
+        keyId,
+        userId,
+        hash,
+        prefix,
+        "default",
+        '["*"]',
+        null,
+      );
     });
 
     try {
@@ -591,29 +634,39 @@ export function createManagementRoutes(ctx) {
     });
   });
 
-  /** Create a Stripe Checkout session for Pro upgrade */
+  /** Create a Stripe Checkout session for Pro or Team upgrade */
   api.post("/api/billing/checkout", async (c) => {
     const user = await requireAuth(c);
     if (!user) return c.json({ error: "Unauthorized" }, 401);
 
-    if (user.tier === "pro") {
-      return c.json({ error: "Already on Pro tier" }, 400);
+    const body = await c.req.json().catch(() => ({}));
+
+    // Validate plan param — default to pro_monthly
+    const VALID_PLANS = ["pro_monthly", "pro_annual", "team"];
+    const plan = VALID_PLANS.includes(body.plan) ? body.plan : "pro_monthly";
+
+    // Block already-upgraded users from re-purchasing the same tier
+    if (plan !== "team" && (user.tier === "pro" || user.tier === "team")) {
+      return c.json({ error: "Already on a paid tier" }, 400);
+    }
+    if (plan === "team" && user.tier === "team") {
+      return c.json({ error: "Already on Team tier" }, 400);
     }
 
-    const body = await c.req.json().catch(() => ({}));
     const session = await createCheckoutSession({
       userId: user.userId,
       email: user.email,
       customerId: user.stripeCustomerId,
       successUrl: body.successUrl,
       cancelUrl: body.cancelUrl,
+      plan,
     });
 
     if (!session) {
       return c.json(
         {
           error:
-            "Stripe not configured. Set STRIPE_SECRET_KEY and STRIPE_PRICE_PRO.",
+            "Stripe not configured. Set STRIPE_SECRET_KEY and the relevant STRIPE_PRICE_* variable.",
         },
         503,
       );
@@ -1118,6 +1171,16 @@ export function createManagementRoutes(ctx) {
   api.get("/api/vault/export", async (c) => {
     const user = await requireAuth(c);
     if (!user) return c.json({ error: "Unauthorized" }, 401);
+
+    if (!hasScope(user.scopes, "vault:export")) {
+      return c.json(
+        {
+          error: "Insufficient scope. Required: vault:export",
+          code: "FORBIDDEN",
+        },
+        403,
+      );
+    }
 
     // Enforce tier export access
     const limits = getTierLimits(user.tier);

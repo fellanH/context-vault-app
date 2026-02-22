@@ -1,0 +1,58 @@
+[
+  {
+    "version": "0.6.0",
+    "date": "2026-02-23",
+    "title": "API Key Scopes & MCP Activity Dashboard",
+    "bullets": [
+      "API keys now support fine-grained scopes — restrict keys to read-only or write access per vault section",
+      "New MCP Usage dashboard widget shows daily and weekly request counts at a glance",
+      "Per-key request activity log lets you audit which tools are using each key",
+      "UI scope selector makes it easy to configure key permissions when creating or editing keys"
+    ]
+  },
+  {
+    "version": "0.5.0",
+    "date": "2026-02-10",
+    "title": "Entry Editing, Selective Export & Import UX",
+    "bullets": [
+      "Full entry editing is now available directly in the Entry Inspector panel",
+      "Selective export lets you filter entries by category, kind, and date range before downloading",
+      "Free-tier users see a clear upgrade prompt when attempting large exports",
+      "Import flow now includes inline format documentation and a progress bar for JSON imports",
+      "Delete entries with a 5-second undo window before the change is committed"
+    ]
+  },
+  {
+    "version": "0.4.0",
+    "date": "2026-01-28",
+    "title": "Hosted MCP & Session-Based Auth",
+    "bullets": [
+      "Context Vault now runs a hosted MCP server — connect Claude Code, Cursor, Windsurf, and Zed with one command",
+      "Authentication switched to HttpOnly session cookies for improved security",
+      "Onboarding flow branches between new users and teams migrating from a local vault",
+      "Import bridge syncs your local vault folder directly into the hosted vault on first sign-in"
+    ]
+  },
+  {
+    "version": "0.3.0",
+    "date": "2026-01-15",
+    "title": "Billing & Free Tier Refinements",
+    "bullets": [
+      "Stripe prices updated to match GTM pricing; free tier limits revised to reflect launch strategy",
+      "Pro subscribers can now access the Stripe Customer Portal directly from the Billing page",
+      "Billing page feature copy aligned with actual backend limits to remove confusion",
+      "OAuth sign-in now reliably issues tokens for returning users, fixing a lockout regression"
+    ]
+  },
+  {
+    "version": "0.2.0",
+    "date": "2025-12-20",
+    "title": "Import, Search & Error States",
+    "bullets": [
+      "Folder upload is now the primary import workflow — drag in your vault directory and everything syncs",
+      "Import promoted to a first-class sidebar route for easier discoverability",
+      "Error states across the app now show actionable retry buttons and reconnect options",
+      "Pre-production security hardening: logout data leak patched, webhook TOCTOU fixed, invite expiry enforced"
+    ]
+  }
+]

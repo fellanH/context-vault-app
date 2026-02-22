@@ -39,6 +39,7 @@ describe("hosted auth + management API", () => {
         PORT: String(PORT),
         AUTH_REQUIRED: "true",
         VAULT_MASTER_SECRET: "test-secret-for-integration-tests",
+        SESSION_SECRET: "test-session-secret-for-integration-tests-only",
         CONTEXT_MCP_DATA_DIR: tmpDir,
         CONTEXT_MCP_VAULT_DIR: join(tmpDir, "vault"),
         // Dummy Google OAuth config so OAuth endpoints don't return 503

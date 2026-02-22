@@ -1,15 +1,8 @@
 import { useState, useCallback, useMemo, useEffect } from "react";
 import { useQueryClient } from "@tanstack/react-query";
-import {
-  AuthContext,
-  type AuthState,
-  getStoredToken,
-  setStoredToken,
-  clearStoredToken,
-} from "../lib/auth";
+import { AuthContext, type AuthState } from "../lib/auth";
 import {
   api,
-  ApiError,
   setStoredEncryptionSecret,
   clearStoredEncryptionSecret,
 } from "../lib/api";
@@ -18,47 +11,27 @@ import type { User, ApiUserResponse, ApiRegisterResponse } from "../lib/types";
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const queryClient = useQueryClient();
-  const [token, setToken] = useState<string | null>(getStoredToken);
   const [user, setUser] = useState<User | null>(null);
   const [isLoading, setIsLoading] = useState(true);
 
-  // On mount: revalidate stored token
+  // On mount: call /me unconditionally — session cookie is sent automatically
   useEffect(() => {
-    const storedToken = getStoredToken();
-
-    if (!storedToken) {
-      setIsLoading(false);
-      return;
-    }
-
     api
       .get<ApiUserResponse>("/me")
       .then((raw) => {
         setUser(transformUser(raw));
-        setToken(storedToken);
       })
-      .catch((err) => {
-        // Token invalid — request() already cleared localStorage on 401.
-        // Don't wipe state: loginWithApiKey may be racing (OAuth callback).
-        if (!(err instanceof ApiError) || err.status !== 401) {
-          // Non-auth error: silently ignore, user stays unauthenticated
-        }
+      .catch(() => {
+        // Not authenticated — stay unauthenticated
       })
       .finally(() => setIsLoading(false));
   }, []);
 
   const loginWithApiKey = useCallback(async (key: string) => {
-    setStoredToken(key);
-    setToken(key);
-    try {
-      const raw = await api.get<ApiUserResponse>("/me");
-      setUser(transformUser(raw));
-    } catch (err) {
-      clearStoredToken();
-      setToken(null);
-      setUser(null);
-      throw err;
-    }
+    const raw = await api.post<ApiUserResponse>("/auth/session", {
+      apiKey: key,
+    });
+    setUser(transformUser(raw));
   }, []);
 
   const register = useCallback(async (email: string, name?: string) => {
@@ -67,8 +40,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       name,
     });
 
-    setStoredToken(raw.apiKey.key);
-    setToken(raw.apiKey.key);
     if (raw.encryptionSecret) {
       setStoredEncryptionSecret(raw.encryptionSecret);
     }
@@ -83,25 +54,23 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     return { apiKey: raw.apiKey.key };
   }, []);
 
-  const logout = useCallback(() => {
-    clearStoredToken();
+  const logout = useCallback(async () => {
+    await api.post("/auth/logout").catch(() => {});
     clearStoredEncryptionSecret();
     queryClient.clear();
-    setToken(null);
     setUser(null);
   }, [queryClient]);
 
   const value: AuthState = useMemo(
     () => ({
       user,
-      token,
-      isAuthenticated: !!token && !!user,
+      isAuthenticated: !!user,
       isLoading,
       loginWithApiKey,
       register,
       logout,
     }),
-    [user, token, isLoading, loginWithApiKey, register, logout],
+    [user, isLoading, loginWithApiKey, register, logout],
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

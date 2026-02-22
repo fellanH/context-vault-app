@@ -83,6 +83,12 @@ function validateEnv(config) {
       );
       process.exit(1);
     }
+    if (!process.env.SESSION_SECRET || process.env.SESSION_SECRET.length < 32) {
+      console.error(
+        "[hosted] FATAL: SESSION_SECRET is required and must be at least 32 characters when AUTH_REQUIRED=true",
+      );
+      process.exit(1);
+    }
   }
 
   // Verify data dir is writable
@@ -178,14 +184,14 @@ app.use("*", bodyLimit({ maxSize: 512 * 1024 }));
 // Structured JSON request logging
 app.use("*", requestLogger());
 
-// CORS for browser-based MCP clients
+// CORS for browser-based clients
 // When AUTH_REQUIRED and no CORS_ORIGIN set → block browser origins (empty array)
-// When !AUTH_REQUIRED (dev) → allow all
+// When !AUTH_REQUIRED (dev) → echo-back origin ("*" + credentials:true is invalid per spec)
 const corsOrigin = AUTH_REQUIRED
   ? process.env.CORS_ORIGIN
     ? process.env.CORS_ORIGIN.split(",").map((s) => s.trim())
     : []
-  : "*";
+  : (origin) => origin || null;
 
 if (AUTH_REQUIRED && !process.env.CORS_ORIGIN) {
   console.warn(
@@ -197,6 +203,7 @@ app.use(
   "*",
   cors({
     origin: corsOrigin,
+    credentials: true,
     allowMethods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
     allowHeaders: [
       "Content-Type",

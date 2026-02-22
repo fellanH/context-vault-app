@@ -1,4 +1,5 @@
 import { Hono } from "hono";
+import { getCookie } from "hono/cookie";
 import { randomUUID, randomBytes, createHash } from "node:crypto";
 import { rmSync } from "node:fs";
 import {
@@ -9,6 +10,11 @@ import {
   getMetaDb,
   validateApiKey,
 } from "../auth/meta-db.js";
+import {
+  setSessionCookie,
+  clearSessionCookie,
+  verifySessionToken,
+} from "../auth/session.js";
 import {
   isGoogleOAuthConfigured,
   getAuthUrl,
@@ -88,12 +94,36 @@ export function createManagementRoutes(ctx) {
 
   const VAULT_MASTER_SECRET = process.env.VAULT_MASTER_SECRET || null;
 
-  function requireAuth(c) {
+  async function requireAuth(c) {
+    // ── 1. Session cookie ──────────────────────────────────────────────────
+    const sessionToken = getCookie(c, "cv_session");
+    if (sessionToken) {
+      const payload = await verifySessionToken(sessionToken);
+      if (payload?.sub) {
+        const stmts = prepareMetaStatements(getMetaDb());
+        const row = stmts.getUserById.get(payload.sub);
+        if (row) {
+          const user = {
+            userId: row.id,
+            email: row.email,
+            tier: row.tier,
+            scopes: ["*"],
+            stripeCustomerId: row.stripe_customer_id || null,
+          };
+          const vaultSecret = c.req.header("X-Vault-Secret");
+          if (vaultSecret && vaultSecret.startsWith("cvs_")) {
+            user.clientKeyShare = vaultSecret;
+          }
+          return user;
+        }
+      }
+    }
+
+    // ── 2. Bearer API key ──────────────────────────────────────────────────
     const header = c.req.header("Authorization");
     if (!header?.startsWith("Bearer ")) return null;
     const user = validateApiKey(header.slice(7));
     if (!user) return null;
-    // Attach client key share from X-Vault-Secret header (split-authority encryption)
     const vaultSecret = c.req.header("X-Vault-Secret");
     if (vaultSecret && vaultSecret.startsWith("cvs_")) {
       user.clientKeyShare = vaultSecret;
@@ -102,8 +132,8 @@ export function createManagementRoutes(ctx) {
   }
 
   /** Return the authenticated user's profile */
-  api.get("/api/me", (c) => {
-    const user = requireAuth(c);
+  api.get("/api/me", async (c) => {
+    const user = await requireAuth(c);
     if (!user) return c.json({ error: "Unauthorized" }, 401);
 
     const stmts = prepareMetaStatements(getMetaDb());
@@ -121,8 +151,8 @@ export function createManagementRoutes(ctx) {
   });
 
   /** List all API keys for the authenticated user */
-  api.get("/api/keys", (c) => {
-    const user = requireAuth(c);
+  api.get("/api/keys", async (c) => {
+    const user = await requireAuth(c);
     if (!user) return c.json({ error: "Unauthorized" }, 401);
 
     const stmts = prepareMetaStatements(getMetaDb());
@@ -132,7 +162,7 @@ export function createManagementRoutes(ctx) {
 
   /** Create a new API key */
   api.post("/api/keys", async (c) => {
-    const user = requireAuth(c);
+    const user = await requireAuth(c);
     if (!user) return c.json({ error: "Unauthorized" }, 401);
 
     const stmts = prepareMetaStatements(getMetaDb());
@@ -188,8 +218,8 @@ export function createManagementRoutes(ctx) {
   });
 
   /** Delete an API key */
-  api.delete("/api/keys/:id", (c) => {
-    const user = requireAuth(c);
+  api.delete("/api/keys/:id", async (c) => {
+    const user = await requireAuth(c);
     if (!user) return c.json({ error: "Unauthorized" }, 401);
 
     const keyId = c.req.param("id");
@@ -323,9 +353,6 @@ export function createManagementRoutes(ctx) {
       if (existingUser) matchedByEmail = true;
     }
 
-    let apiKeyRaw;
-    let encryptionSecret = null;
-
     if (existingUser) {
       // Link google_id if user was matched by email (first Google sign-in for email-registered user)
       if (matchedByEmail && !existingUser.google_id) {
@@ -336,37 +363,17 @@ export function createManagementRoutes(ctx) {
           .run(profile.googleId, existingUser.id);
       }
 
-      // Always issue a new key on OAuth sign-in so returning users can sign in
-      // on any device. If the user is at their tier key limit, rotate by deleting
-      // the oldest key first (listUserKeys orders DESC so last element is oldest).
-      const keys = stmts.listUserKeys.all(existingUser.id);
-      const tierLimits = getTierLimits(existingUser.tier || "free");
-      if (
-        tierLimits.apiKeys !== Infinity &&
-        keys.length >= tierLimits.apiKeys
-      ) {
-        const oldest = keys[keys.length - 1];
-        stmts.deleteApiKey.run(oldest.id, existingUser.id);
-      }
-      apiKeyRaw = generateApiKey();
-      const hash = hashApiKey(apiKeyRaw);
-      const prefix = keyPrefix(apiKeyRaw);
-      const keyId = randomUUID();
-      stmts.createApiKey.run(
-        keyId,
-        existingUser.id,
-        hash,
-        prefix,
-        "default",
-        null,
-      );
+      // Existing user — set session cookie and redirect (no key rotation)
+      await setSessionCookie(c, existingUser.id);
+      return c.redirect(appUrl);
     } else {
-      // New user — create account with google_id + split-authority encryption
+      // New user — create account with google_id + split-authority encryption + initial API key
       const userId = randomUUID();
-      apiKeyRaw = generateApiKey();
+      const apiKeyRaw = generateApiKey();
       const hash = hashApiKey(apiKeyRaw);
       const prefix = keyPrefix(apiKeyRaw);
       const keyId = randomUUID();
+      let encryptionSecret = null;
 
       const registerUser = getMetaDb().transaction(() => {
         stmts.createUserWithGoogle.run(
@@ -407,14 +414,48 @@ export function createManagementRoutes(ctx) {
         );
         return c.redirect(`${appUrl}/login?error=registration_failed`);
       }
-    }
 
-    // Redirect to app with the API key as a token (one-time, via URL fragment)
-    // Include encryption secret for new users
-    const fragment = encryptionSecret
-      ? `token=${apiKeyRaw}&encryption_secret=${encryptionSecret}`
-      : `token=${apiKeyRaw}`;
-    return c.redirect(`${appUrl}/auth/callback#${fragment}`);
+      await setSessionCookie(c, userId);
+      // New users get the encryption secret via hash so they can save it locally
+      if (encryptionSecret) {
+        return c.redirect(
+          `${appUrl}/auth/callback#encryption_secret=${encryptionSecret}`,
+        );
+      }
+      return c.redirect(appUrl);
+    }
+  });
+
+  /**
+   * Validate an API key and exchange it for a session cookie.
+   * Allows power users to sign in via their API key in the web UI.
+   */
+  api.post("/api/auth/session", async (c) => {
+    const body = await c.req.json().catch(() => ({}));
+    if (!body.apiKey) return c.json({ error: "apiKey is required" }, 400);
+
+    const user = validateApiKey(body.apiKey);
+    if (!user) return c.json({ error: "Invalid or expired API key" }, 401);
+
+    const stmts = prepareMetaStatements(getMetaDb());
+    const row = stmts.getUserById.get(user.userId);
+    if (!row) return c.json({ error: "User not found" }, 404);
+
+    await setSessionCookie(c, user.userId);
+    return c.json({
+      userId: row.id,
+      email: row.email,
+      name: row.name || null,
+      tier: row.tier,
+      encryptionMode: row.encryption_mode || "legacy",
+      createdAt: row.created_at,
+    });
+  });
+
+  /** Clear the session cookie (logout). */
+  api.post("/api/auth/logout", (c) => {
+    clearSessionCookie(c);
+    return c.json({ ok: true });
   });
 
   /** Register a new user and return their first API key */
@@ -504,11 +545,12 @@ export function createManagementRoutes(ctx) {
         "Save your encryption secret. It cannot be recovered if lost.";
     }
 
+    await setSessionCookie(c, userId);
     return c.json(response, 201);
   });
 
   api.get("/api/billing/usage", async (c) => {
-    const user = requireAuth(c);
+    const user = await requireAuth(c);
     if (!user) return c.json({ error: "Unauthorized" }, 401);
 
     const stmts = prepareMetaStatements(getMetaDb());
@@ -550,7 +592,7 @@ export function createManagementRoutes(ctx) {
 
   /** Create a Stripe Checkout session for Pro upgrade */
   api.post("/api/billing/checkout", async (c) => {
-    const user = requireAuth(c);
+    const user = await requireAuth(c);
     if (!user) return c.json({ error: "Unauthorized" }, 401);
 
     if (user.tier === "pro") {
@@ -668,7 +710,7 @@ export function createManagementRoutes(ctx) {
 
   /** Create a new team — caller becomes owner */
   api.post("/api/teams", async (c) => {
-    const user = requireAuth(c);
+    const user = await requireAuth(c);
     if (!user) return c.json({ error: "Unauthorized" }, 401);
 
     const body = await c.req.json().catch(() => ({}));
@@ -703,8 +745,8 @@ export function createManagementRoutes(ctx) {
   });
 
   /** Get user's teams */
-  api.get("/api/teams", (c) => {
-    const user = requireAuth(c);
+  api.get("/api/teams", async (c) => {
+    const user = await requireAuth(c);
     if (!user) return c.json({ error: "Unauthorized" }, 401);
 
     const stmts = prepareMetaStatements(getMetaDb());
@@ -722,8 +764,8 @@ export function createManagementRoutes(ctx) {
   });
 
   /** Get team details + members */
-  api.get("/api/teams/:id", (c) => {
-    const user = requireAuth(c);
+  api.get("/api/teams/:id", async (c) => {
+    const user = await requireAuth(c);
     if (!user) return c.json({ error: "Unauthorized" }, 401);
 
     const teamId = c.req.param("id");
@@ -767,7 +809,7 @@ export function createManagementRoutes(ctx) {
 
   /** Invite a user to a team (owner/admin only) */
   api.post("/api/teams/:id/invite", async (c) => {
-    const user = requireAuth(c);
+    const user = await requireAuth(c);
     if (!user) return c.json({ error: "Unauthorized" }, 401);
 
     const teamId = c.req.param("id");
@@ -834,7 +876,7 @@ export function createManagementRoutes(ctx) {
 
   /** Accept a team invite */
   api.post("/api/teams/:id/join", async (c) => {
-    const user = requireAuth(c);
+    const user = await requireAuth(c);
     if (!user) return c.json({ error: "Unauthorized" }, 401);
 
     const teamId = c.req.param("id");
@@ -889,8 +931,8 @@ export function createManagementRoutes(ctx) {
   });
 
   /** Remove a member from a team (owner/admin only, or self-remove) */
-  api.delete("/api/teams/:id/members/:userId", (c) => {
-    const user = requireAuth(c);
+  api.delete("/api/teams/:id/members/:userId", async (c) => {
+    const user = await requireAuth(c);
     if (!user) return c.json({ error: "Unauthorized" }, 401);
 
     const teamId = c.req.param("id");
@@ -936,7 +978,7 @@ export function createManagementRoutes(ctx) {
 
   /** Get team usage stats */
   api.get("/api/teams/:id/usage", async (c) => {
-    const user = requireAuth(c);
+    const user = await requireAuth(c);
     if (!user) return c.json({ error: "Unauthorized" }, 401);
 
     const teamId = c.req.param("id");
@@ -974,7 +1016,7 @@ export function createManagementRoutes(ctx) {
   });
 
   api.delete("/api/account", async (c) => {
-    const user = requireAuth(c);
+    const user = await requireAuth(c);
     if (!user) return c.json({ error: "Unauthorized" }, 401);
 
     // 1. Cancel Stripe subscription if active
@@ -1048,7 +1090,7 @@ export function createManagementRoutes(ctx) {
 
   /** Export vault entries (supports pagination via ?limit=N&offset=N) */
   api.get("/api/vault/export", async (c) => {
-    const user = requireAuth(c);
+    const user = await requireAuth(c);
     if (!user) return c.json({ error: "Unauthorized" }, 401);
 
     const userCtx = await getCachedUserCtx(ctx, user, VAULT_MASTER_SECRET);

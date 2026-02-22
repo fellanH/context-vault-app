@@ -1,5 +1,3 @@
-import { getStoredToken, clearStoredToken } from "./auth";
-
 const HOSTED_API_URL = import.meta.env.VITE_API_URL || "/api";
 
 // One-time cleanup of old localStorage/sessionStorage keys from the port-based local server era
@@ -42,17 +40,12 @@ export class ApiError extends Error {
 }
 
 async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
-  const token = getStoredToken();
   const headers: Record<string, string> = {
     ...((options.headers as Record<string, string>) || {}),
   };
 
   if (options.body) {
     headers["Content-Type"] = "application/json";
-  }
-
-  if (token) {
-    headers["Authorization"] = `Bearer ${token}`;
   }
 
   const encryptionSecret = getStoredEncryptionSecret();
@@ -63,6 +56,7 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
   const res = await fetch(`${HOSTED_API_URL}${path}`, {
     ...options,
     headers,
+    credentials: "include",
   });
 
   if (!res.ok) {
@@ -74,13 +68,6 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
       if (body.code) code = body.code;
     } catch {
       // use statusText fallback
-    }
-
-    // Only clear the stored token if it still matches the one that was
-    // rejected. A concurrent register() or loginWithApiKey() may have already
-    // stored a fresh token, and we must not wipe it.
-    if (res.status === 401 && token && getStoredToken() === token) {
-      clearStoredToken();
     }
 
     throw new ApiError(res.status, message, code);

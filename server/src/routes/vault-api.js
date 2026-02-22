@@ -27,7 +27,7 @@ import { categoryFor } from "@context-vault/core/core/categories";
 import { isOverEntryLimit } from "../billing/stripe.js";
 import { validateEntryInput } from "../validation/entry-validation.js";
 import { getCachedUserCtx } from "../server/user-ctx.js";
-import { bearerAuth } from "../middleware/auth.js";
+import { cookieOrBearerAuth } from "../middleware/auth.js";
 import { rateLimit } from "../middleware/rate-limit.js";
 import { generateOpenApiSpec } from "../api/openapi.js";
 
@@ -94,10 +94,10 @@ export function createVaultApiRoutes(ctx, masterSecret) {
   });
 
   // All remaining vault API routes require auth + rate limiting
-  api.use("/api/vault/entries/*", bearerAuth(), rateLimit());
-  api.use("/api/vault/entries", bearerAuth(), rateLimit());
-  api.use("/api/vault/search", bearerAuth(), rateLimit());
-  api.use("/api/vault/status", bearerAuth(), rateLimit());
+  api.use("/api/vault/entries/*", cookieOrBearerAuth(), rateLimit());
+  api.use("/api/vault/entries", cookieOrBearerAuth(), rateLimit());
+  api.use("/api/vault/search", cookieOrBearerAuth(), rateLimit());
+  api.use("/api/vault/status", cookieOrBearerAuth(), rateLimit());
 
   // ─── GET /api/vault/entries — List/browse with filters + pagination ────────
 
@@ -436,212 +436,243 @@ export function createVaultApiRoutes(ctx, masterSecret) {
 
   // ─── POST /api/vault/import/bulk — Bulk import entries ──────────────────────
 
-  api.post("/api/vault/import/bulk", bearerAuth(), rateLimit(), async (c) => {
-    const user = c.get("user");
-    const userCtx = await getCachedUserCtx(ctx, user, masterSecret);
+  api.post(
+    "/api/vault/import/bulk",
+    cookieOrBearerAuth(),
+    rateLimit(),
+    async (c) => {
+      const user = c.get("user");
+      const userCtx = await getCachedUserCtx(ctx, user, masterSecret);
 
-    const data = await c.req.json().catch(() => null);
-    if (!data || !Array.isArray(data.entries)) {
-      return c.json(
-        {
-          error: "Invalid body — expected { entries: [...] }",
-          code: "INVALID_INPUT",
-        },
-        400,
-      );
-    }
-
-    if (data.entries.length > 500) {
-      return c.json(
-        { error: "Maximum 500 entries per request", code: "LIMIT_EXCEEDED" },
-        400,
-      );
-    }
-
-    // Entry limit enforcement
-    if (userCtx.userId) {
-      const { c: entryCount } = userCtx.db
-        .prepare(
-          "SELECT COUNT(*) as c FROM vault WHERE user_id = ? OR user_id IS NULL",
-        )
-        .get(userCtx.userId);
-      const remaining = isOverEntryLimit(user.tier, entryCount)
-        ? 0
-        : user.tier === "free"
-          ? 100 - entryCount
-          : Infinity;
-      if (remaining <= 0) {
+      const data = await c.req.json().catch(() => null);
+      if (!data || !Array.isArray(data.entries)) {
         return c.json(
           {
-            error: "Entry limit reached. Upgrade to Pro.",
-            code: "LIMIT_EXCEEDED",
+            error: "Invalid body — expected { entries: [...] }",
+            code: "INVALID_INPUT",
           },
-          403,
+          400,
         );
       }
-    }
 
-    let imported = 0;
-    let failed = 0;
-    const errors = [];
+      if (data.entries.length > 500) {
+        return c.json(
+          { error: "Maximum 500 entries per request", code: "LIMIT_EXCEEDED" },
+          400,
+        );
+      }
 
-    for (const entry of data.entries) {
-      try {
-        const validationError = validateEntryInput(entry);
-        if (validationError) {
+      // Entry limit enforcement
+      if (userCtx.userId) {
+        const { c: entryCount } = userCtx.db
+          .prepare(
+            "SELECT COUNT(*) as c FROM vault WHERE user_id = ? OR user_id IS NULL",
+          )
+          .get(userCtx.userId);
+        const remaining = isOverEntryLimit(user.tier, entryCount)
+          ? 0
+          : user.tier === "free"
+            ? 100 - entryCount
+            : Infinity;
+        if (remaining <= 0) {
+          return c.json(
+            {
+              error: "Entry limit reached. Upgrade to Pro.",
+              code: "LIMIT_EXCEEDED",
+            },
+            403,
+          );
+        }
+      }
+
+      let imported = 0;
+      let failed = 0;
+      const errors = [];
+
+      for (const entry of data.entries) {
+        try {
+          const validationError = validateEntryInput(entry);
+          if (validationError) {
+            failed++;
+            errors.push(
+              `${entry.title || entry.id || "unknown"}: ${validationError.error}`,
+            );
+            continue;
+          }
+
+          await captureAndIndex(userCtx, {
+            kind: entry.kind,
+            title: entry.title,
+            body: entry.body,
+            meta: entry.meta,
+            tags: entry.tags,
+            source: entry.source || "bulk-import",
+            identity_key: entry.identity_key,
+            expires_at: entry.expires_at,
+            userId: userCtx.userId,
+          });
+          imported++;
+        } catch (err) {
           failed++;
           errors.push(
-            `${entry.title || entry.id || "unknown"}: ${validationError.error}`,
+            `${entry.title || entry.id || "unknown"}: ${err.message}`,
           );
-          continue;
         }
-
-        await captureAndIndex(userCtx, {
-          kind: entry.kind,
-          title: entry.title,
-          body: entry.body,
-          meta: entry.meta,
-          tags: entry.tags,
-          source: entry.source || "bulk-import",
-          identity_key: entry.identity_key,
-          expires_at: entry.expires_at,
-          userId: userCtx.userId,
-        });
-        imported++;
-      } catch (err) {
-        failed++;
-        errors.push(`${entry.title || entry.id || "unknown"}: ${err.message}`);
       }
-    }
 
-    return c.json({ imported, failed, errors: errors.slice(0, 10) });
-  });
+      return c.json({ imported, failed, errors: errors.slice(0, 10) });
+    },
+  );
 
   // ─── POST /api/vault/import — Single-entry import ────────────────────────────
 
-  api.post("/api/vault/import", bearerAuth(), rateLimit(), async (c) => {
-    const user = c.get("user");
-    const userCtx = await getCachedUserCtx(ctx, user, masterSecret);
+  api.post(
+    "/api/vault/import",
+    cookieOrBearerAuth(),
+    rateLimit(),
+    async (c) => {
+      const user = c.get("user");
+      const userCtx = await getCachedUserCtx(ctx, user, masterSecret);
 
-    const data = await c.req.json().catch(() => null);
-    if (!data)
-      return c.json({ error: "Invalid JSON body", code: "INVALID_INPUT" }, 400);
-
-    const validationError = validateEntryInput(data);
-    if (validationError) {
-      return c.json(
-        { error: validationError.error, code: "INVALID_INPUT" },
-        validationError.status,
-      );
-    }
-
-    // Entry limit enforcement
-    if (userCtx.userId) {
-      const { c: entryCount } = userCtx.db
-        .prepare(
-          "SELECT COUNT(*) as c FROM vault WHERE user_id = ? OR user_id IS NULL",
-        )
-        .get(userCtx.userId);
-      if (isOverEntryLimit(user.tier, entryCount)) {
+      const data = await c.req.json().catch(() => null);
+      if (!data)
         return c.json(
-          {
-            error: "Entry limit reached. Upgrade to Pro.",
-            code: "LIMIT_EXCEEDED",
-          },
-          403,
+          { error: "Invalid JSON body", code: "INVALID_INPUT" },
+          400,
+        );
+
+      const validationError = validateEntryInput(data);
+      if (validationError) {
+        return c.json(
+          { error: validationError.error, code: "INVALID_INPUT" },
+          validationError.status,
         );
       }
-    }
 
-    try {
-      const entry = await captureAndIndex(userCtx, {
-        kind: data.kind,
-        title: data.title,
-        body: data.body,
-        meta: data.meta,
-        tags: data.tags,
-        source: data.source || "import",
-        identity_key: data.identity_key,
-        expires_at: data.expires_at,
-        userId: userCtx.userId,
-        teamId: data.team_id || null,
-      });
+      // Entry limit enforcement
+      if (userCtx.userId) {
+        const { c: entryCount } = userCtx.db
+          .prepare(
+            "SELECT COUNT(*) as c FROM vault WHERE user_id = ? OR user_id IS NULL",
+          )
+          .get(userCtx.userId);
+        if (isOverEntryLimit(user.tier, entryCount)) {
+          return c.json(
+            {
+              error: "Entry limit reached. Upgrade to Pro.",
+              code: "LIMIT_EXCEEDED",
+            },
+            403,
+          );
+        }
+      }
 
-      return c.json(
-        formatEntry(userCtx.stmts.getEntryById.get(entry.id), userCtx.decrypt),
-        201,
-      );
-    } catch (err) {
-      console.error(`[vault-api] Import entry error: ${err.message}`);
-      return c.json(
-        { error: "Failed to import entry", code: "IMPORT_FAILED" },
-        500,
-      );
-    }
-  });
+      try {
+        const entry = await captureAndIndex(userCtx, {
+          kind: data.kind,
+          title: data.title,
+          body: data.body,
+          meta: data.meta,
+          tags: data.tags,
+          source: data.source || "import",
+          identity_key: data.identity_key,
+          expires_at: data.expires_at,
+          userId: userCtx.userId,
+          teamId: data.team_id || null,
+        });
+
+        return c.json(
+          formatEntry(
+            userCtx.stmts.getEntryById.get(entry.id),
+            userCtx.decrypt,
+          ),
+          201,
+        );
+      } catch (err) {
+        console.error(`[vault-api] Import entry error: ${err.message}`);
+        return c.json(
+          { error: "Failed to import entry", code: "IMPORT_FAILED" },
+          500,
+        );
+      }
+    },
+  );
 
   // NOTE: GET /api/vault/export is defined in management.js (with Pro tier check)
 
   // ─── POST /api/vault/ingest — Fetch URL and save as entry ─────────────────
 
-  api.post("/api/vault/ingest", bearerAuth(), rateLimit(), async (c) => {
-    const user = c.get("user");
-    const userCtx = await getCachedUserCtx(ctx, user, masterSecret);
+  api.post(
+    "/api/vault/ingest",
+    cookieOrBearerAuth(),
+    rateLimit(),
+    async (c) => {
+      const user = c.get("user");
+      const userCtx = await getCachedUserCtx(ctx, user, masterSecret);
 
-    const data = await c.req.json().catch(() => null);
-    if (!data?.url)
-      return c.json({ error: "url is required", code: "INVALID_INPUT" }, 400);
+      const data = await c.req.json().catch(() => null);
+      if (!data?.url)
+        return c.json({ error: "url is required", code: "INVALID_INPUT" }, 400);
 
-    try {
-      const { ingestUrl } =
-        await import("@context-vault/core/capture/ingest-url");
-      const entry = await ingestUrl(data.url, {
-        kind: data.kind,
-        tags: data.tags,
-      });
-      const result = await captureAndIndex(userCtx, {
-        ...entry,
-        userId: userCtx.userId,
-      });
-      return c.json(
-        formatEntry(userCtx.stmts.getEntryById.get(result.id), userCtx.decrypt),
-        201,
-      );
-    } catch (err) {
-      return c.json(
-        { error: `Ingestion failed: ${err.message}`, code: "INGEST_FAILED" },
-        500,
-      );
-    }
-  });
+      try {
+        const { ingestUrl } =
+          await import("@context-vault/core/capture/ingest-url");
+        const entry = await ingestUrl(data.url, {
+          kind: data.kind,
+          tags: data.tags,
+        });
+        const result = await captureAndIndex(userCtx, {
+          ...entry,
+          userId: userCtx.userId,
+        });
+        return c.json(
+          formatEntry(
+            userCtx.stmts.getEntryById.get(result.id),
+            userCtx.decrypt,
+          ),
+          201,
+        );
+      } catch (err) {
+        return c.json(
+          { error: `Ingestion failed: ${err.message}`, code: "INGEST_FAILED" },
+          500,
+        );
+      }
+    },
+  );
 
   // ─── GET /api/vault/manifest — Lightweight entry list for sync ────────────
 
-  api.get("/api/vault/manifest", bearerAuth(), rateLimit(), async (c) => {
-    const user = c.get("user");
-    const userCtx = await getCachedUserCtx(ctx, user, masterSecret);
+  api.get(
+    "/api/vault/manifest",
+    cookieOrBearerAuth(),
+    rateLimit(),
+    async (c) => {
+      const user = c.get("user");
+      const userCtx = await getCachedUserCtx(ctx, user, masterSecret);
 
-    const clauses = ["(expires_at IS NULL OR expires_at > datetime('now'))"];
-    const params = [];
-    if (userCtx.userId) {
-      clauses.push("(user_id = ? OR user_id IS NULL)");
-      params.push(userCtx.userId);
-    }
-    const where = `WHERE ${clauses.join(" AND ")}`;
-    const rows = userCtx.db
-      .prepare(
-        `SELECT id, kind, title, created_at FROM vault ${where} ORDER BY created_at DESC`,
-      )
-      .all(...params);
-    return c.json({
-      entries: rows.map((r) => ({
-        id: r.id,
-        kind: r.kind,
-        title: r.title || null,
-        created_at: r.created_at,
-      })),
-    });
-  });
+      const clauses = ["(expires_at IS NULL OR expires_at > datetime('now'))"];
+      const params = [];
+      if (userCtx.userId) {
+        clauses.push("(user_id = ? OR user_id IS NULL)");
+        params.push(userCtx.userId);
+      }
+      const where = `WHERE ${clauses.join(" AND ")}`;
+      const rows = userCtx.db
+        .prepare(
+          `SELECT id, kind, title, created_at FROM vault ${where} ORDER BY created_at DESC`,
+        )
+        .all(...params);
+      return c.json({
+        entries: rows.map((r) => ({
+          id: r.id,
+          kind: r.kind,
+          title: r.title || null,
+          created_at: r.created_at,
+        })),
+      });
+    },
+  );
 
   // ─── GET /api/vault/status — Vault diagnostics + usage stats ───────────────
 

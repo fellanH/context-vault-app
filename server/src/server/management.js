@@ -23,6 +23,7 @@ import {
 } from "../auth/google-oauth.js";
 import {
   createCheckoutSession,
+  createPortalSession,
   verifyWebhookEvent,
   getStripe,
   getTierLimits,
@@ -619,6 +620,31 @@ export function createManagementRoutes(ctx) {
     }
 
     return c.json({ url: session.url, sessionId: session.sessionId });
+  });
+
+  /** Create a Stripe Customer Portal session for managing subscriptions */
+  api.post("/api/billing/portal", async (c) => {
+    const user = await requireAuth(c);
+    if (!user) return c.json({ error: "Unauthorized" }, 401);
+
+    if (!user.stripeCustomerId) {
+      return c.json({ error: "No active subscription found" }, 400);
+    }
+
+    const body = await c.req.json().catch(() => ({}));
+    const session = await createPortalSession({
+      customerId: user.stripeCustomerId,
+      returnUrl:
+        body.returnUrl ||
+        process.env.PUBLIC_URL + "/settings/billing" ||
+        "https://app.context-vault.com/settings/billing",
+    });
+
+    if (!session) {
+      return c.json({ error: "Stripe not configured" }, 503);
+    }
+
+    return c.json({ url: session.url });
   });
 
   /** Stripe webhook endpoint */

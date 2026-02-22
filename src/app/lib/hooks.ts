@@ -196,6 +196,13 @@ export function useCheckout() {
   });
 }
 
+export function usePortal() {
+  return useMutation({
+    mutationFn: (opts?: { returnUrl?: string }) =>
+      api.post<{ url: string }>("/billing/portal", opts),
+  });
+}
+
 // ─── Account ─────────────────────────────────────────────────────────────────
 
 export function useDeleteAccount() {

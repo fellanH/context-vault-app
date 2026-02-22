@@ -12,7 +12,7 @@ import { UsageMeter } from "../../components/UsageMeter";
 import { TierBadge } from "../../components/TierBadge";
 import { Check, Loader2 } from "lucide-react";
 import { useAuth } from "../../lib/auth";
-import { useUsage, useCheckout } from "../../lib/hooks";
+import { useUsage, useCheckout, usePortal } from "../../lib/hooks";
 import { formatMegabytes } from "../../lib/format";
 import { toast } from "sonner";
 
@@ -61,6 +61,7 @@ export function Billing() {
   const { user } = useAuth();
   const { data: usage, isLoading: usageLoading } = useUsage();
   const checkoutMutation = useCheckout();
+  const portalMutation = usePortal();
   const [searchParams, setSearchParams] = useSearchParams();
 
   useEffect(() => {
@@ -69,6 +70,20 @@ export function Billing() {
       setSearchParams({}, { replace: true });
     }
   }, [searchParams, setSearchParams]);
+
+  const handleManageSubscription = () => {
+    portalMutation.mutate(
+      { returnUrl: `${window.location.origin}/settings/billing` },
+      {
+        onSuccess: (data) => {
+          window.location.href = data.url;
+        },
+        onError: () => {
+          toast.error("Failed to open billing portal");
+        },
+      },
+    );
+  };
 
   const handleUpgrade = (tier: string) => {
     if (tier === "team") {
@@ -106,7 +121,23 @@ export function Billing() {
         <CardHeader className="pb-3">
           <div className="flex items-center justify-between">
             <CardTitle className="text-base">Current Plan</CardTitle>
-            <TierBadge tier={currentTier} />
+            <div className="flex items-center gap-2">
+              <TierBadge tier={currentTier} />
+              {currentTier !== "free" && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="text-xs h-7"
+                  disabled={portalMutation.isPending}
+                  onClick={handleManageSubscription}
+                >
+                  {portalMutation.isPending ? (
+                    <Loader2 className="size-3 animate-spin mr-1" />
+                  ) : null}
+                  Manage subscription
+                </Button>
+              )}
+            </div>
           </div>
         </CardHeader>
         <CardContent className="space-y-4">

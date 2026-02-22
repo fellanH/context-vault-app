@@ -107,6 +107,25 @@ export async function verifyWebhookEvent(body, signature) {
   }
 }
 
+/**
+ * Create a Stripe Customer Portal session.
+ *
+ * @param {object} opts
+ * @param {string} opts.customerId - Stripe customer ID
+ * @param {string} opts.returnUrl - URL to redirect back to after portal
+ * @returns {Promise<{ url: string } | null>}
+ */
+export async function createPortalSession({ customerId, returnUrl }) {
+  const s = await getStripe();
+  if (!s) return null;
+
+  const session = await s.billingPortal.sessions.create({
+    customer: customerId,
+    return_url: returnUrl,
+  });
+  return { url: session.url };
+}
+
 // ─── Tier Mapping ───────────────────────────────────────────────────────────
 
 const TIER_LIMITS = {

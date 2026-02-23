@@ -18,11 +18,13 @@ import { Sync } from "./pages/settings/Sync";
 import { TeamCreate } from "./pages/team/Create";
 import { TeamDashboard } from "./pages/team/Dashboard";
 import { TeamInvite } from "./pages/team/Invite";
+import { Changelog } from "./pages/Changelog";
 
 export const router = createBrowserRouter([
   { path: "/login", Component: Login },
   { path: "/register", Component: Register },
   { path: "/auth/callback", Component: AuthCallback },
+  { path: "/changelog", Component: Changelog },
   {
     path: "/",
     Component: RootLayout,

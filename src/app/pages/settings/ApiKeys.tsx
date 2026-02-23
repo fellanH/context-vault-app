@@ -11,6 +11,11 @@ import { Label } from "../../components/ui/label";
 import { Badge } from "../../components/ui/badge";
 import { Checkbox } from "../../components/ui/checkbox";
 import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "../../components/ui/tooltip";
+import {
   Copy,
   Check,
   Plus,
@@ -20,6 +25,7 @@ import {
   ChevronDown,
   ChevronUp,
   Activity,
+  Info,
 } from "lucide-react";
 import {
   useApiKeys,
@@ -36,20 +42,28 @@ const SCOPE_OPTIONS = [
   {
     value: "vault:read",
     label: "vault:read",
-    description: "Read entries, search, status",
+    description: "Read entries, search, and check vault status",
   },
   {
     value: "vault:write",
     label: "vault:write",
-    description: "Create, update, delete entries",
+    description: "Create, update, and delete vault entries",
   },
   {
     value: "vault:export",
     label: "vault:export",
-    description: "Export vault data",
+    description: "Export all vault data to a file",
   },
-  { value: "mcp", label: "mcp", description: "MCP endpoint access" },
-  { value: "keys:read", label: "keys:read", description: "List API keys" },
+  {
+    value: "mcp",
+    label: "mcp",
+    description: "Access the MCP endpoint for Claude Code integration",
+  },
+  {
+    value: "keys:read",
+    label: "keys:read",
+    description: "List and inspect your API keys (read-only)",
+  },
 ] as const;
 
 function ScopeBadges({ scopes }: { scopes: string[] }) {
@@ -266,7 +280,8 @@ export function ApiKeys() {
   const [showCreate, setShowCreate] = useState(false);
   const [copied, setCopied] = useState<string | null>(null);
   const [newlyCreatedKey, setNewlyCreatedKey] = useState<string | null>(null);
-  const [scopeMode, setScopeMode] = useState<"full" | "custom">("full");
+  // true = full access (*), false = custom individual scopes
+  const [fullAccess, setFullAccess] = useState(true);
   const [customScopes, setCustomScopes] = useState<string[]>([]);
 
   // eslint-disable-next-line react-hooks/purity -- stable snapshot for expiry badge display
@@ -278,10 +293,26 @@ export function ApiKeys() {
     );
   };
 
+  const handleFullAccessChange = (checked: boolean) => {
+    setFullAccess(checked);
+    if (checked) {
+      // Clear individual selections when switching back to full access
+      setCustomScopes([]);
+    }
+  };
+
+  const resetCreateForm = () => {
+    setShowCreate(false);
+    setNewKeyName("");
+    setNewKeyExpiry("");
+    setFullAccess(true);
+    setCustomScopes([]);
+  };
+
   const createKey = () => {
     if (!newKeyName.trim()) return;
-    const scopes = scopeMode === "full" ? ["*"] : customScopes;
-    if (scopeMode === "custom" && scopes.length === 0) {
+    const scopes = fullAccess ? ["*"] : customScopes;
+    if (!fullAccess && scopes.length === 0) {
       toast.error("Select at least one scope");
       return;
     }
@@ -294,11 +325,7 @@ export function ApiKeys() {
       {
         onSuccess: (data) => {
           setNewlyCreatedKey(data.key);
-          setNewKeyName("");
-          setNewKeyExpiry("");
-          setScopeMode("full");
-          setCustomScopes([]);
-          setShowCreate(false);
+          resetCreateForm();
           toast.success(`API key "${newKeyName.trim()}" created`);
         },
         onError: () => {
@@ -441,49 +468,67 @@ export function ApiKeys() {
               {/* Scope selection */}
               <div className="space-y-2">
                 <Label className="text-xs">Permissions</Label>
-                <div className="flex gap-2">
-                  <button
-                    type="button"
-                    onClick={() => setScopeMode("full")}
-                    className={`px-3 py-1.5 rounded-md text-xs border transition-colors ${
-                      scopeMode === "full"
-                        ? "bg-primary text-primary-foreground border-primary"
-                        : "border-border text-muted-foreground hover:text-foreground"
-                    }`}
-                  >
-                    Full access
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setScopeMode("custom")}
-                    className={`px-3 py-1.5 rounded-md text-xs border transition-colors ${
-                      scopeMode === "custom"
-                        ? "bg-primary text-primary-foreground border-primary"
-                        : "border-border text-muted-foreground hover:text-foreground"
-                    }`}
-                  >
-                    Custom scopes
-                  </button>
+                <div className="rounded-md border border-border divide-y divide-border">
+                  {/* Full access (* scope) row */}
+                  <label className="flex items-center gap-2.5 px-3 py-2 cursor-pointer hover:bg-muted/40 transition-colors">
+                    <Checkbox
+                      checked={fullAccess}
+                      onCheckedChange={(checked) =>
+                        handleFullAccessChange(!!checked)
+                      }
+                      disabled={createMutation.isPending}
+                    />
+                    <span className="text-xs font-mono font-medium">*</span>
+                    <span className="text-xs text-muted-foreground flex-1">
+                      Full access — all current and future scopes
+                    </span>
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <Info className="size-3 text-muted-foreground/60 shrink-0" />
+                      </TooltipTrigger>
+                      <TooltipContent side="left">
+                        Grants unrestricted access. Checking this disables
+                        individual scope selection.
+                      </TooltipContent>
+                    </Tooltip>
+                  </label>
+
+                  {/* Individual scope rows */}
+                  {SCOPE_OPTIONS.map(({ value, label, description }) => (
+                    <label
+                      key={value}
+                      className={`flex items-center gap-2.5 px-3 py-2 transition-colors ${
+                        fullAccess
+                          ? "opacity-40 cursor-not-allowed"
+                          : "cursor-pointer hover:bg-muted/40"
+                      }`}
+                    >
+                      <Checkbox
+                        checked={!fullAccess && customScopes.includes(value)}
+                        onCheckedChange={() =>
+                          !fullAccess && toggleScope(value)
+                        }
+                        disabled={createMutation.isPending || fullAccess}
+                      />
+                      <span className="text-xs font-mono">{label}</span>
+                      <span className="text-xs text-muted-foreground flex-1">
+                        —
+                      </span>
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <Info className="size-3 text-muted-foreground/60 shrink-0" />
+                        </TooltipTrigger>
+                        <TooltipContent side="left">
+                          {description}
+                        </TooltipContent>
+                      </Tooltip>
+                    </label>
+                  ))}
                 </div>
-                {scopeMode === "custom" && (
-                  <div className="grid grid-cols-1 gap-2 pt-1">
-                    {SCOPE_OPTIONS.map(({ value, label, description }) => (
-                      <label
-                        key={value}
-                        className="flex items-center gap-2.5 cursor-pointer group"
-                      >
-                        <Checkbox
-                          checked={customScopes.includes(value)}
-                          onCheckedChange={() => toggleScope(value)}
-                          disabled={createMutation.isPending}
-                        />
-                        <span className="text-xs font-mono">{label}</span>
-                        <span className="text-xs text-muted-foreground">
-                          — {description}
-                        </span>
-                      </label>
-                    ))}
-                  </div>
+                {!fullAccess && customScopes.length === 0 && (
+                  <p className="text-[11px] text-amber-600 dark:text-amber-400">
+                    Select at least one scope.
+                  </p>
                 )}
               </div>
 
@@ -499,16 +544,7 @@ export function ApiKeys() {
                     "Create"
                   )}
                 </Button>
-                <Button
-                  size="sm"
-                  variant="ghost"
-                  onClick={() => {
-                    setShowCreate(false);
-                    setNewKeyExpiry("");
-                    setScopeMode("full");
-                    setCustomScopes([]);
-                  }}
-                >
+                <Button size="sm" variant="ghost" onClick={resetCreateForm}>
                   Cancel
                 </Button>
               </div>

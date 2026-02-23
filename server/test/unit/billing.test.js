@@ -11,8 +11,8 @@ describe("tier limits", () => {
     expect(limits.maxEntries).toBe(Infinity);
     expect(limits.storageMb).toBe(50);
     expect(limits.requestsPerDay).toBe(200);
-    expect(limits.apiKeys).toBe(1);
-    expect(limits.exportEnabled).toBe(true);
+    expect(limits.apiKeys).toBe(Infinity);
+    expect(limits.exportEnabled).toBe(false);
   });
 
   it("returns pro tier limits", () => {
@@ -36,8 +36,8 @@ describe("tier limits", () => {
   it("defaults to free for unknown tiers", () => {
     const limits = getTierLimits("unknown");
     expect(limits.maxEntries).toBe(Infinity);
-    expect(limits.apiKeys).toBe(1);
-    expect(limits.exportEnabled).toBe(true);
+    expect(limits.apiKeys).toBe(Infinity);
+    expect(limits.exportEnabled).toBe(false);
   });
 
   it("all tiers have all required fields", () => {

@@ -17,6 +17,7 @@ import {
   Loader2,
   ExternalLink,
   Plus,
+  ScrollText,
 } from "lucide-react";
 import { useTheme } from "next-themes";
 import { Button } from "./ui/button";
@@ -38,6 +39,7 @@ const mainItems: NavItem[] = [
   { path: "/", label: "Dashboard", icon: Home },
   { path: "/search", label: "Search", icon: Search },
   { path: "/import", label: "Import", icon: Upload },
+  { path: "/changelog", label: "What's New", icon: ScrollText },
 ];
 
 const vaultItems: NavItem[] = [
@@ -58,6 +60,7 @@ function getPageTitle(pathname: string): string {
   if (pathname.startsWith("/team/invite")) return "Team Invite";
   if (pathname.startsWith("/team/")) return "Team";
   if (pathname === "/import") return "Import";
+  if (pathname === "/changelog") return "What's New";
   const all = [...mainItems, ...vaultItems, ...settingsItems];
   const match = all.find((item) =>
     item.path === "/" ? pathname === "/" : pathname.startsWith(item.path),

@@ -39,8 +39,21 @@ import {
   Link2,
   ChevronDown,
   ChevronUp,
+  ScrollText,
 } from "lucide-react";
 import { toast } from "sonner";
+import changelogData from "../../data/changelog.json";
+
+const WHATS_NEW_KEY = "cv-whats-new-dismissed";
+const LATEST_VERSION = changelogData[0]?.version ?? "";
+
+function isWhatsNewDismissed(): boolean {
+  return localStorage.getItem(WHATS_NEW_KEY) === LATEST_VERSION;
+}
+
+function dismissWhatsNew(): void {
+  localStorage.setItem(WHATS_NEW_KEY, LATEST_VERSION);
+}
 
 const STEP_ICONS: Record<string, React.ElementType> = {
   "connect-tools": Link2,
@@ -86,6 +99,9 @@ export function Dashboard() {
 
   const [showOnboarding, setShowOnboarding] = useState(
     () => !isOnboardingDismissed(),
+  );
+  const [showWhatsNew, setShowWhatsNew] = useState(
+    () => !isWhatsNewDismissed(),
   );
   const [copiedCmd, setCopiedCmd] = useState(false);
   // Used only to trigger re-render after markExtensionInstalled() writes to localStorage
@@ -190,6 +206,39 @@ export function Dashboard() {
             : "Get started by completing the steps below."}
         </p>
       </div>
+
+      {/* What's New banner — dismissable per release */}
+      {showWhatsNew && (
+        <div className="flex items-center justify-between rounded-lg border border-primary/20 bg-primary/5 px-4 py-3">
+          <div className="flex items-center gap-2.5">
+            <ScrollText className="size-4 text-primary flex-shrink-0" />
+            <div>
+              <span className="text-sm font-medium">
+                What&apos;s new in v{LATEST_VERSION}
+              </span>
+              <span className="text-sm text-muted-foreground ml-2">
+                &mdash; {changelogData[0]?.title}
+              </span>
+            </div>
+          </div>
+          <div className="flex items-center gap-2 ml-4 flex-shrink-0">
+            <Button variant="outline" size="sm" asChild className="text-xs h-7">
+              <Link to="/changelog">See what changed</Link>
+            </Button>
+            <Button
+              variant="ghost"
+              size="icon"
+              className="size-7"
+              onClick={() => {
+                dismissWhatsNew();
+                setShowWhatsNew(false);
+              }}
+            >
+              <X className="size-3.5" />
+            </Button>
+          </div>
+        </div>
+      )}
 
       {/* Onboarding Journey — hidden once dismissed or all steps complete */}
       {showOnboarding && !allComplete && (

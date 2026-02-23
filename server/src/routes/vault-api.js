@@ -31,6 +31,8 @@ import { cookieOrBearerAuth } from "../middleware/auth.js";
 import { rateLimit } from "../middleware/rate-limit.js";
 import { generateOpenApiSpec } from "../api/openapi.js";
 import { hasScope } from "../auth/scopes.js";
+import { checkAndSendUsageAlerts } from "../email/usage-alerts.js";
+import { prepareMetaStatements, getMetaDb } from "../auth/meta-db.js";
 
 /**
  * Format a DB row into a clean API entry response.
@@ -61,6 +63,36 @@ function formatEntry(row, decryptFn) {
     team_id: row.team_id || null,
     created_at: row.created_at,
   };
+}
+
+/**
+ * Fire-and-forget storage alert check after write operations.
+ * Reads current storage from the user's DB and sends an alert if needed.
+ *
+ * @param {object} user — Authenticated user (must have userId, email, tier)
+ * @param {object} userCtx — Per-user context with db and checkLimits
+ */
+function triggerStorageAlert(user, userCtx) {
+  if (!user?.email || !user?.userId || !userCtx?.checkLimits) return;
+  Promise.resolve().then(async () => {
+    try {
+      const stmts = prepareMetaStatements(getMetaDb());
+      const requestsToday = stmts.countUsageToday.get(
+        user.userId,
+        "mcp_request",
+      ).c;
+      const { storageMb } = userCtx.checkLimits();
+      await checkAndSendUsageAlerts({
+        userId: user.userId,
+        email: user.email,
+        tier: user.tier,
+        requestsToday,
+        storageMbUsed: storageMb,
+      });
+    } catch {
+      // Never let alert errors surface
+    }
+  });
 }
 
 /**
@@ -274,6 +306,8 @@ export function createVaultApiRoutes(ctx, masterSecret) {
         userId: userCtx.userId,
         teamId: data.team_id || null,
       });
+
+      triggerStorageAlert(user, userCtx);
 
       return c.json(
         formatEntry(userCtx.stmts.getEntryById.get(entry.id), userCtx.decrypt),
@@ -654,6 +688,8 @@ export function createVaultApiRoutes(ctx, masterSecret) {
           teamId: data.team_id || null,
         });
 
+        triggerStorageAlert(user, userCtx);
+
         return c.json(
           formatEntry(
             userCtx.stmts.getEntryById.get(entry.id),
@@ -707,6 +743,9 @@ export function createVaultApiRoutes(ctx, masterSecret) {
           ...entry,
           userId: userCtx.userId,
         });
+
+        triggerStorageAlert(user, userCtx);
+
         return c.json(
           formatEntry(
             userCtx.stmts.getEntryById.get(result.id),

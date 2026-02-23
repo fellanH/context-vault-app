@@ -11,6 +11,7 @@
 
 import { prepareMetaStatements, getMetaDb } from "../auth/meta-db.js";
 import { getTierLimits } from "../billing/stripe.js";
+import { checkAndSendUsageAlerts } from "../email/usage-alerts.js";
 
 /**
  * Hono middleware that enforces tier-based rate limits.
@@ -64,5 +65,33 @@ export function rateLimit() {
     } catch {}
 
     await next();
+
+    // Fire-and-forget: check thresholds and send alert emails if needed.
+    // Runs after the response is sent — no latency impact on the API caller.
+    if (limits.requestsPerDay !== Infinity && user.email) {
+      Promise.resolve().then(async () => {
+        try {
+          const db = getMetaDb();
+          const requestsToday = db
+            .prepare(
+              `SELECT COUNT(*) as c FROM usage_log WHERE user_id = ? AND operation = 'mcp_request' AND timestamp >= date('now')`,
+            )
+            .get(user.userId).c;
+
+          // Storage usage requires the user's vault DB — skip if unavailable.
+          // The storage alert will be triggered on the next request that has
+          // access to userCtx (vault-api routes call checkLimits directly).
+          await checkAndSendUsageAlerts({
+            userId: user.userId,
+            email: user.email,
+            tier: user.tier,
+            requestsToday,
+            storageMbUsed: 0, // storage checked separately in vault-api routes
+          });
+        } catch {
+          // Never let alert errors surface to the caller
+        }
+      });
+    }
   };
 }

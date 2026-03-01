@@ -36,6 +36,7 @@ export interface ApiKey {
   id: string;
   name: string;
   prefix: string;
+  scopes: string[];
   createdAt: Date;
   lastUsedAt?: Date;
   expiresAt?: Date;
@@ -45,6 +46,7 @@ export interface UsageResponse {
   entries: { used: number; limit: number };
   storage: { usedMb: number; limitMb: number };
   requestsToday: { used: number; limit: number };
+  requestsThisWeek: { used: number };
   apiKeys: { active: number; limit: number };
 }
 
@@ -81,6 +83,7 @@ export interface ApiKeyListItem {
   id: string;
   key_prefix: string;
   name: string;
+  scopes: string;
   created_at: string;
   last_used?: string | null;
   expires_at?: string | null;
@@ -118,6 +121,7 @@ export interface ApiUsageResponse {
   };
   usage: {
     requestsToday: number;
+    requestsThisWeek: number;
     entriesUsed: number;
     storageMb: number;
   };
@@ -288,6 +292,7 @@ export function transformApiKey(raw: ApiKeyListItem): ApiKey {
     id: raw.id,
     name: raw.name,
     prefix: raw.key_prefix,
+    scopes: raw.scopes ? JSON.parse(raw.scopes) : ["*"],
     createdAt: new Date(raw.created_at),
     lastUsedAt: raw.last_used ? new Date(raw.last_used) : undefined,
     expiresAt: raw.expires_at ? new Date(raw.expires_at) : undefined,
@@ -314,11 +319,29 @@ export function transformUsage(
       used: raw.usage.requestsToday,
       limit: numOrMax(raw.limits.requestsPerDay),
     },
+    requestsThisWeek: {
+      used: raw.usage.requestsThisWeek ?? 0,
+    },
     apiKeys: {
       active: apiKeyCount,
       limit: Infinity, // not tracked in usage response
     },
   };
+}
+
+// ─── API Key Activity ─────────────────────────────────────────────────────────
+
+export interface ApiKeyActivityItem {
+  operation: string;
+  timestamp: string;
+  status: string;
+}
+
+export interface ApiKeyActivityResponse {
+  logs: ApiKeyActivityItem[];
+  total: number;
+  limit: number;
+  offset: number;
 }
 
 export function transformUser(raw: ApiUserResponse): User {

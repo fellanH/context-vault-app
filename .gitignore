@@ -3,3 +3,14 @@ dist/
 .DS_Store
 .env*
 .vercel/
+
+# Local tooling
+.agent/
+.agents/
+.claude/
+.windsurf/
+docs/
+memory/
+scripts/
+skills/
+skills-lock.json

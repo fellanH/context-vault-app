@@ -10,6 +10,7 @@ import {
   getMetaDb,
   validateApiKey,
 } from "../auth/meta-db.js";
+import { hasScope, validateScopes } from "../auth/scopes.js";
 import {
   setSessionCookie,
   clearSessionCookie,
@@ -156,6 +157,16 @@ export function createManagementRoutes(ctx) {
     const user = await requireAuth(c);
     if (!user) return c.json({ error: "Unauthorized" }, 401);
 
+    if (!hasScope(user.scopes, "keys:read")) {
+      return c.json(
+        {
+          error: "Insufficient scope. Required: keys:read",
+          code: "FORBIDDEN",
+        },
+        403,
+      );
+    }
+
     const stmts = prepareMetaStatements(getMetaDb());
     const keys = stmts.listUserKeys.all(user.userId);
     return c.json({ keys });
@@ -185,6 +196,13 @@ export function createManagementRoutes(ctx) {
     const body = await c.req.json().catch(() => ({}));
     const name = body.name || "default";
 
+    // Validate scopes (default: full access)
+    const scopes = body.scopes ?? ["*"];
+    const scopeError = validateScopes(scopes);
+    if (scopeError) {
+      return c.json({ error: scopeError }, 400);
+    }
+
     let expires_at = null;
     if (body.expires_at) {
       const d = new Date(body.expires_at);
@@ -202,7 +220,15 @@ export function createManagementRoutes(ctx) {
     const prefix = keyPrefix(rawKey);
     const id = randomUUID();
 
-    stmts.createApiKey.run(id, user.userId, hash, prefix, name, expires_at);
+    stmts.createApiKey.run(
+      id,
+      user.userId,
+      hash,
+      prefix,
+      name,
+      JSON.stringify(scopes),
+      expires_at,
+    );
 
     // Return the raw key ONCE — it cannot be retrieved again
     return c.json(
@@ -211,11 +237,43 @@ export function createManagementRoutes(ctx) {
         key: rawKey,
         prefix,
         name,
+        scopes,
         expires_at,
         message: "Save this key — it will not be shown again.",
       },
       201,
     );
+  });
+
+  /** Get per-key request activity log (last 50 by default, paginated) */
+  api.get("/api/keys/:id/activity", async (c) => {
+    const user = await requireAuth(c);
+    if (!user) return c.json({ error: "Unauthorized" }, 401);
+
+    const keyId = c.req.param("id");
+    const limit = Math.min(
+      parseInt(c.req.query("limit") || "50", 10) || 50,
+      200,
+    );
+    const offset = parseInt(c.req.query("offset") || "0", 10) || 0;
+
+    const stmts = prepareMetaStatements(getMetaDb());
+
+    // Verify key belongs to this user
+    const userKeys = stmts.listUserKeys.all(user.userId);
+    if (!userKeys.some((k) => k.id === keyId)) {
+      return c.json({ error: "Key not found" }, 404);
+    }
+
+    const logs = stmts.listKeyActivity.all(keyId, limit, offset);
+    const total = stmts.countKeyActivity.get(keyId).c;
+
+    // Occasional cleanup of old entries (non-critical)
+    try {
+      stmts.pruneOldActivity.run();
+    } catch {}
+
+    return c.json({ logs, total, limit, offset });
   });
 
   /** Delete an API key */
@@ -398,7 +456,15 @@ export function createManagementRoutes(ctx) {
             userId,
           );
         }
-        stmts.createApiKey.run(keyId, userId, hash, prefix, "default", null);
+        stmts.createApiKey.run(
+          keyId,
+          userId,
+          hash,
+          prefix,
+          "default",
+          '["*"]',
+          null,
+        );
       });
 
       try {
@@ -509,7 +575,15 @@ export function createManagementRoutes(ctx) {
           userId,
         );
       }
-      stmts.createApiKey.run(keyId, userId, hash, prefix, "default", null);
+      stmts.createApiKey.run(
+        keyId,
+        userId,
+        hash,
+        prefix,
+        "default",
+        '["*"]',
+        null,
+      );
     });
 
     try {
@@ -556,6 +630,10 @@ export function createManagementRoutes(ctx) {
 
     const stmts = prepareMetaStatements(getMetaDb());
     const requestsToday = stmts.countUsageToday.get(user.userId, "mcp_request");
+    const requestsThisWeek = stmts.countUsageThisWeek.get(
+      user.userId,
+      "mcp_request",
+    );
     const limits = getTierLimits(user.tier);
 
     const userCtx = await getCachedUserCtx(ctx, user, VAULT_MASTER_SECRET);
@@ -585,35 +663,46 @@ export function createManagementRoutes(ctx) {
       },
       usage: {
         requestsToday: requestsToday.c,
+        requestsThisWeek: requestsThisWeek.c,
         entriesUsed: entryCount,
         storageMb: Math.round((storageBytes / (1024 * 1024)) * 100) / 100,
       },
     });
   });
 
-  /** Create a Stripe Checkout session for Pro upgrade */
+  /** Create a Stripe Checkout session for Pro or Team upgrade */
   api.post("/api/billing/checkout", async (c) => {
     const user = await requireAuth(c);
     if (!user) return c.json({ error: "Unauthorized" }, 401);
 
-    if (user.tier === "pro") {
-      return c.json({ error: "Already on Pro tier" }, 400);
+    const body = await c.req.json().catch(() => ({}));
+
+    // Validate plan param — default to pro_monthly
+    const VALID_PLANS = ["pro_monthly", "pro_annual", "team"];
+    const plan = VALID_PLANS.includes(body.plan) ? body.plan : "pro_monthly";
+
+    // Block already-upgraded users from re-purchasing the same tier
+    if (plan !== "team" && (user.tier === "pro" || user.tier === "team")) {
+      return c.json({ error: "Already on a paid tier" }, 400);
+    }
+    if (plan === "team" && user.tier === "team") {
+      return c.json({ error: "Already on Team tier" }, 400);
     }
 
-    const body = await c.req.json().catch(() => ({}));
     const session = await createCheckoutSession({
       userId: user.userId,
       email: user.email,
       customerId: user.stripeCustomerId,
       successUrl: body.successUrl,
       cancelUrl: body.cancelUrl,
+      plan,
     });
 
     if (!session) {
       return c.json(
         {
           error:
-            "Stripe not configured. Set STRIPE_SECRET_KEY and STRIPE_PRICE_PRO.",
+            "Stripe not configured. Set STRIPE_SECRET_KEY and the relevant STRIPE_PRICE_* variable.",
         },
         503,
       );
@@ -1118,6 +1207,16 @@ export function createManagementRoutes(ctx) {
   api.get("/api/vault/export", async (c) => {
     const user = await requireAuth(c);
     if (!user) return c.json({ error: "Unauthorized" }, 401);
+
+    if (!hasScope(user.scopes, "vault:export")) {
+      return c.json(
+        {
+          error: "Insufficient scope. Required: vault:export",
+          code: "FORBIDDEN",
+        },
+        403,
+      );
+    }
 
     // Enforce tier export access
     const limits = getTierLimits(user.tier);

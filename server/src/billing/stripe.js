@@ -2,14 +2,17 @@
  * stripe.js — Stripe billing integration.
  *
  * Handles:
- *   - Checkout session creation for Pro upgrade
+ *   - Checkout session creation for Pro/Pro Annual/Team upgrade
  *   - Webhook processing for subscription events
  *   - Tier enforcement based on subscription status
  *
  * Requires environment variables:
- *   STRIPE_SECRET_KEY      — Stripe API secret key
- *   STRIPE_WEBHOOK_SECRET  — Webhook endpoint signing secret
- *   STRIPE_PRICE_PRO       — Price ID for Pro tier ($9/mo)
+ *   STRIPE_SECRET_KEY        — Stripe API secret key
+ *   STRIPE_WEBHOOK_SECRET    — Webhook endpoint signing secret
+ *   STRIPE_PRICE_PRO         — Price ID for Pro Monthly ($6/mo)
+ *   STRIPE_PRICE_PRO_ANNUAL  — Price ID for Pro Annual ($48/yr)
+ *   STRIPE_PRICE_TEAM        — Price ID for Team Monthly ($18/mo, up to 5 seats)
+ *   STRIPE_PRICE_TEAM_SEAT   — Price ID for Team per-seat ($5/mo per seat beyond 5)
  *
  * In development, these can be test mode keys.
  * The Stripe SDK is loaded dynamically to avoid requiring it for local mode.
@@ -37,14 +40,33 @@ export async function getStripe() {
 }
 
 /**
- * Create a Stripe Checkout session for upgrading to Pro.
+ * Resolve the Stripe price ID for a given plan name.
+ *
+ * @param {"pro_monthly"|"pro_annual"|"team"} plan
+ * @returns {string | null}
+ */
+function getPriceId(plan) {
+  switch (plan) {
+    case "pro_annual":
+      return process.env.STRIPE_PRICE_PRO_ANNUAL || null;
+    case "team":
+      return process.env.STRIPE_PRICE_TEAM || null;
+    case "pro_monthly":
+    default:
+      return process.env.STRIPE_PRICE_PRO || null;
+  }
+}
+
+/**
+ * Create a Stripe Checkout session for upgrading to Pro or Team.
  *
  * @param {object} opts
  * @param {string} opts.userId - Internal user ID
  * @param {string} opts.email - User email
- * @param {string} opts.customerId - Stripe customer ID (if exists)
- * @param {string} opts.successUrl - Redirect URL after success
- * @param {string} opts.cancelUrl - Redirect URL after cancel
+ * @param {string} [opts.customerId] - Stripe customer ID (if exists)
+ * @param {string} [opts.successUrl] - Redirect URL after success
+ * @param {string} [opts.cancelUrl] - Redirect URL after cancel
+ * @param {"pro_monthly"|"pro_annual"|"team"} [opts.plan] - Plan to subscribe to (default: pro_monthly)
  * @returns {Promise<{ url: string, sessionId: string } | null>}
  */
 export async function createCheckoutSession({
@@ -53,16 +75,18 @@ export async function createCheckoutSession({
   customerId,
   successUrl,
   cancelUrl,
+  plan = "pro_monthly",
 }) {
   const s = await getStripe();
   if (!s) return null;
 
-  const priceId = process.env.STRIPE_PRICE_PRO;
+  const priceId = getPriceId(plan);
   if (!priceId) return null;
 
   const params = {
     mode: "subscription",
     line_items: [{ price: priceId, quantity: 1 }],
+    allow_promotion_codes: true,
     success_url:
       successUrl ||
       process.env.STRIPE_SUCCESS_URL ||

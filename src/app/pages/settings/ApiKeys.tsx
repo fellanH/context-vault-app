@@ -9,6 +9,12 @@ import {
 import { Input } from "../../components/ui/input";
 import { Label } from "../../components/ui/label";
 import { Badge } from "../../components/ui/badge";
+import { Checkbox } from "../../components/ui/checkbox";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "../../components/ui/tooltip";
 import {
   Copy,
   Check,
@@ -16,11 +22,254 @@ import {
   Trash2,
   Loader2,
   AlertTriangle,
+  ChevronDown,
+  ChevronUp,
+  Activity,
+  Info,
 } from "lucide-react";
-import { useApiKeys, useCreateApiKey, useDeleteApiKey } from "../../lib/hooks";
+import {
+  useApiKeys,
+  useCreateApiKey,
+  useDeleteApiKey,
+  useKeyActivity,
+} from "../../lib/hooks";
+import type { ApiKey } from "../../lib/types";
 import { toast } from "sonner";
 
 const SEVEN_DAYS_MS = 7 * 24 * 60 * 60 * 1000;
+
+const SCOPE_OPTIONS = [
+  {
+    value: "vault:read",
+    label: "vault:read",
+    description: "Read entries, search, and check vault status",
+  },
+  {
+    value: "vault:write",
+    label: "vault:write",
+    description: "Create, update, and delete vault entries",
+  },
+  {
+    value: "vault:export",
+    label: "vault:export",
+    description: "Export all vault data to a file",
+  },
+  {
+    value: "mcp",
+    label: "mcp",
+    description: "Access the MCP endpoint for Claude Code integration",
+  },
+  {
+    value: "keys:read",
+    label: "keys:read",
+    description: "List and inspect your API keys (read-only)",
+  },
+] as const;
+
+function ScopeBadges({ scopes }: { scopes: string[] }) {
+  if (scopes.includes("*")) {
+    return (
+      <Badge variant="secondary" className="text-[10px]">
+        Full access
+      </Badge>
+    );
+  }
+  return (
+    <>
+      {scopes.map((s) => (
+        <Badge key={s} variant="outline" className="text-[10px] font-mono">
+          {s}
+        </Badge>
+      ))}
+    </>
+  );
+}
+
+function formatRelativeTime(iso: string) {
+  const ms = Date.now() - new Date(iso).getTime();
+  const secs = Math.floor(ms / 1000);
+  if (secs < 60) return "just now";
+  const mins = Math.floor(secs / 60);
+  if (mins < 60) return `${mins}m ago`;
+  const hours = Math.floor(mins / 60);
+  if (hours < 24) return `${hours}h ago`;
+  const days = Math.floor(hours / 24);
+  return `${days}d ago`;
+}
+
+function KeyActivityPanel({ keyId }: { keyId: string }) {
+  const [offset, setOffset] = useState(0);
+  const LIMIT = 50;
+  const { data, isLoading } = useKeyActivity(keyId, {
+    limit: LIMIT,
+    offset,
+  });
+
+  if (isLoading) {
+    return (
+      <div className="pt-2 pb-1 space-y-1">
+        {[1, 2, 3].map((i) => (
+          <div key={i} className="h-6 bg-muted rounded animate-pulse" />
+        ))}
+      </div>
+    );
+  }
+
+  if (!data || data.logs.length === 0) {
+    return (
+      <p className="text-xs text-muted-foreground py-2">
+        No requests logged yet. Activity appears once this key is used.
+      </p>
+    );
+  }
+
+  const hasMore = offset + data.logs.length < data.total;
+  const hasPrev = offset > 0;
+
+  return (
+    <div className="pt-2 space-y-0.5">
+      <div className="grid grid-cols-[1fr_auto_auto] gap-x-3 text-[10px] font-medium text-muted-foreground uppercase tracking-wide px-1 pb-1">
+        <span>Operation</span>
+        <span className="text-right">Time</span>
+        <span className="text-right">Status</span>
+      </div>
+      {data.logs.map((log, i) => (
+        <div
+          key={i}
+          className="grid grid-cols-[1fr_auto_auto] gap-x-3 items-center py-0.5 px-1 rounded text-xs hover:bg-muted/50"
+        >
+          <span className="font-mono truncate">{log.operation}</span>
+          <span className="text-muted-foreground whitespace-nowrap">
+            {formatRelativeTime(log.timestamp)}
+          </span>
+          <Badge
+            variant={log.status === "success" ? "secondary" : "destructive"}
+            className="text-[9px] h-4 px-1"
+          >
+            {log.status}
+          </Badge>
+        </div>
+      ))}
+      {(hasMore || hasPrev) && (
+        <div className="flex items-center justify-between pt-1">
+          <span className="text-[10px] text-muted-foreground">
+            {offset + 1}–{offset + data.logs.length} of {data.total}
+          </span>
+          <div className="flex gap-1">
+            {hasPrev && (
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-6 text-xs px-2"
+                onClick={() => setOffset(Math.max(0, offset - LIMIT))}
+              >
+                Prev
+              </Button>
+            )}
+            {hasMore && (
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-6 text-xs px-2"
+                onClick={() => setOffset(offset + LIMIT)}
+              >
+                Next
+              </Button>
+            )}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function KeyRow({
+  apiKey,
+  now,
+  onDelete,
+  deleteIsPending,
+}: {
+  apiKey: ApiKey;
+  now: number;
+  onDelete: (id: string) => void;
+  deleteIsPending: boolean;
+}) {
+  const [showActivity, setShowActivity] = useState(false);
+
+  const expiringSoon =
+    apiKey.expiresAt &&
+    apiKey.expiresAt > new Date() &&
+    apiKey.expiresAt.getTime() - now < SEVEN_DAYS_MS;
+
+  return (
+    <div className="rounded-lg border border-border">
+      <div className="flex items-center justify-between py-2 px-3">
+        <div className="flex items-center gap-3 flex-wrap">
+          <div>
+            <p className="text-sm font-medium">{apiKey.name}</p>
+            <p className="text-xs text-muted-foreground font-mono">
+              {apiKey.prefix}...
+            </p>
+          </div>
+          <ScopeBadges scopes={apiKey.scopes} />
+          <Badge variant="secondary" className="text-[10px]">
+            {apiKey.createdAt.toLocaleDateString()}
+          </Badge>
+          <Badge variant="outline" className="text-[10px]">
+            {apiKey.lastUsedAt
+              ? `Used ${apiKey.lastUsedAt.toLocaleDateString()}`
+              : "Never used"}
+          </Badge>
+          {apiKey.expiresAt && (
+            <Badge
+              variant={expiringSoon ? "destructive" : "outline"}
+              className="text-[10px] gap-1"
+            >
+              {expiringSoon && <AlertTriangle className="size-2.5" />}
+              Expires {apiKey.expiresAt.toLocaleDateString()}
+            </Badge>
+          )}
+        </div>
+        <div className="flex items-center gap-1">
+          <Button
+            variant="ghost"
+            size="sm"
+            className="h-7 px-2 text-xs text-muted-foreground gap-1"
+            onClick={() => setShowActivity((v) => !v)}
+          >
+            <Activity className="size-3" />
+            {showActivity ? (
+              <ChevronUp className="size-3" />
+            ) : (
+              <ChevronDown className="size-3" />
+            )}
+          </Button>
+          <Button
+            variant="ghost"
+            size="icon"
+            className="size-8 text-muted-foreground hover:text-destructive"
+            onClick={() => onDelete(apiKey.id)}
+            disabled={deleteIsPending}
+          >
+            {deleteIsPending ? (
+              <Loader2 className="size-3.5 animate-spin" />
+            ) : (
+              <Trash2 className="size-3.5" />
+            )}
+          </Button>
+        </div>
+      </div>
+      {showActivity && (
+        <div className="border-t border-border px-3 pb-3">
+          <p className="text-[10px] font-medium text-muted-foreground uppercase tracking-wide pt-2 pb-1">
+            Recent Activity
+          </p>
+          <KeyActivityPanel keyId={apiKey.id} />
+        </div>
+      )}
+    </div>
+  );
+}
 
 export function ApiKeys() {
   const { data: keys, isLoading } = useApiKeys();
@@ -31,19 +280,52 @@ export function ApiKeys() {
   const [showCreate, setShowCreate] = useState(false);
   const [copied, setCopied] = useState<string | null>(null);
   const [newlyCreatedKey, setNewlyCreatedKey] = useState<string | null>(null);
+  // true = full access (*), false = custom individual scopes
+  const [fullAccess, setFullAccess] = useState(true);
+  const [customScopes, setCustomScopes] = useState<string[]>([]);
+
+  // eslint-disable-next-line react-hooks/purity -- stable snapshot for expiry badge display
+  const now = Date.now();
+
+  const toggleScope = (scope: string) => {
+    setCustomScopes((prev) =>
+      prev.includes(scope) ? prev.filter((s) => s !== scope) : [...prev, scope],
+    );
+  };
+
+  const handleFullAccessChange = (checked: boolean) => {
+    setFullAccess(checked);
+    if (checked) {
+      // Clear individual selections when switching back to full access
+      setCustomScopes([]);
+    }
+  };
+
+  const resetCreateForm = () => {
+    setShowCreate(false);
+    setNewKeyName("");
+    setNewKeyExpiry("");
+    setFullAccess(true);
+    setCustomScopes([]);
+  };
+
   const createKey = () => {
     if (!newKeyName.trim()) return;
+    const scopes = fullAccess ? ["*"] : customScopes;
+    if (!fullAccess && scopes.length === 0) {
+      toast.error("Select at least one scope");
+      return;
+    }
     createMutation.mutate(
       {
         name: newKeyName.trim(),
         expires_at: newKeyExpiry || undefined,
+        scopes,
       },
       {
         onSuccess: (data) => {
           setNewlyCreatedKey(data.key);
-          setNewKeyName("");
-          setNewKeyExpiry("");
-          setShowCreate(false);
+          resetCreateForm();
           toast.success(`API key "${newKeyName.trim()}" created`);
         },
         onError: () => {
@@ -182,6 +464,74 @@ export function ApiKeys() {
                   />
                 </div>
               </div>
+
+              {/* Scope selection */}
+              <div className="space-y-2">
+                <Label className="text-xs">Permissions</Label>
+                <div className="rounded-md border border-border divide-y divide-border">
+                  {/* Full access (* scope) row */}
+                  <label className="flex items-center gap-2.5 px-3 py-2 cursor-pointer hover:bg-muted/40 transition-colors">
+                    <Checkbox
+                      checked={fullAccess}
+                      onCheckedChange={(checked) =>
+                        handleFullAccessChange(!!checked)
+                      }
+                      disabled={createMutation.isPending}
+                    />
+                    <span className="text-xs font-mono font-medium">*</span>
+                    <span className="text-xs text-muted-foreground flex-1">
+                      Full access — all current and future scopes
+                    </span>
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <Info className="size-3 text-muted-foreground/60 shrink-0" />
+                      </TooltipTrigger>
+                      <TooltipContent side="left">
+                        Grants unrestricted access. Checking this disables
+                        individual scope selection.
+                      </TooltipContent>
+                    </Tooltip>
+                  </label>
+
+                  {/* Individual scope rows */}
+                  {SCOPE_OPTIONS.map(({ value, label, description }) => (
+                    <label
+                      key={value}
+                      className={`flex items-center gap-2.5 px-3 py-2 transition-colors ${
+                        fullAccess
+                          ? "opacity-40 cursor-not-allowed"
+                          : "cursor-pointer hover:bg-muted/40"
+                      }`}
+                    >
+                      <Checkbox
+                        checked={!fullAccess && customScopes.includes(value)}
+                        onCheckedChange={() =>
+                          !fullAccess && toggleScope(value)
+                        }
+                        disabled={createMutation.isPending || fullAccess}
+                      />
+                      <span className="text-xs font-mono">{label}</span>
+                      <span className="text-xs text-muted-foreground flex-1">
+                        —
+                      </span>
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <Info className="size-3 text-muted-foreground/60 shrink-0" />
+                        </TooltipTrigger>
+                        <TooltipContent side="left">
+                          {description}
+                        </TooltipContent>
+                      </Tooltip>
+                    </label>
+                  ))}
+                </div>
+                {!fullAccess && customScopes.length === 0 && (
+                  <p className="text-[11px] text-amber-600 dark:text-amber-400">
+                    Select at least one scope.
+                  </p>
+                )}
+              </div>
+
               <div className="flex gap-2">
                 <Button
                   size="sm"
@@ -194,14 +544,7 @@ export function ApiKeys() {
                     "Create"
                   )}
                 </Button>
-                <Button
-                  size="sm"
-                  variant="ghost"
-                  onClick={() => {
-                    setShowCreate(false);
-                    setNewKeyExpiry("");
-                  }}
-                >
+                <Button size="sm" variant="ghost" onClick={resetCreateForm}>
                   Cancel
                 </Button>
               </div>
@@ -223,61 +566,15 @@ export function ApiKeys() {
             </p>
           ) : (
             <div className="space-y-2">
-              {keys.map((key) => {
-                const now = Date.now();
-                const expiringSoon =
-                  key.expiresAt &&
-                  key.expiresAt > new Date() &&
-                  key.expiresAt.getTime() - now < SEVEN_DAYS_MS;
-
-                return (
-                  <div
-                    key={key.id}
-                    className="flex items-center justify-between py-2 px-3 rounded-lg border border-border"
-                  >
-                    <div className="flex items-center gap-3 flex-wrap">
-                      <div>
-                        <p className="text-sm font-medium">{key.name}</p>
-                        <p className="text-xs text-muted-foreground font-mono">
-                          {key.prefix}...
-                        </p>
-                      </div>
-                      <Badge variant="secondary" className="text-[10px]">
-                        {key.createdAt.toLocaleDateString()}
-                      </Badge>
-                      <Badge variant="outline" className="text-[10px]">
-                        {key.lastUsedAt
-                          ? `Used ${key.lastUsedAt.toLocaleDateString()}`
-                          : "Never used"}
-                      </Badge>
-                      {key.expiresAt && (
-                        <Badge
-                          variant={expiringSoon ? "destructive" : "outline"}
-                          className="text-[10px] gap-1"
-                        >
-                          {expiringSoon && (
-                            <AlertTriangle className="size-2.5" />
-                          )}
-                          Expires {key.expiresAt.toLocaleDateString()}
-                        </Badge>
-                      )}
-                    </div>
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      className="size-8 text-muted-foreground hover:text-destructive"
-                      onClick={() => deleteKey(key.id)}
-                      disabled={deleteMutation.isPending}
-                    >
-                      {deleteMutation.isPending ? (
-                        <Loader2 className="size-3.5 animate-spin" />
-                      ) : (
-                        <Trash2 className="size-3.5" />
-                      )}
-                    </Button>
-                  </div>
-                );
-              })}
+              {keys.map((key) => (
+                <KeyRow
+                  key={key.id}
+                  apiKey={key}
+                  now={now}
+                  onDelete={deleteKey}
+                  deleteIsPending={deleteMutation.isPending}
+                />
+              ))}
             </div>
           )}
         </CardContent>

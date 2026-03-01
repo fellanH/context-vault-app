@@ -22,6 +22,7 @@ import type {
   ApiTeamListResponse,
   ApiTeamDetailResponse,
   ApiTeamUsageResponse,
+  ApiKeyActivityResponse,
   Category,
 } from "./types";
 
@@ -166,11 +167,22 @@ export function useApiKeys() {
 export function useCreateApiKey() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: ({ name, expires_at }: { name: string; expires_at?: string }) =>
-      api.post<{ id: string; key: string; prefix: string; name: string }>(
-        "/keys",
-        { name, expires_at },
-      ),
+    mutationFn: ({
+      name,
+      expires_at,
+      scopes,
+    }: {
+      name: string;
+      expires_at?: string;
+      scopes?: string[];
+    }) =>
+      api.post<{
+        id: string;
+        key: string;
+        prefix: string;
+        name: string;
+        scopes: string[];
+      }>("/keys", { name, expires_at, scopes }),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["apiKeys"] });
     },
@@ -184,6 +196,25 @@ export function useDeleteApiKey() {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["apiKeys"] });
     },
+  });
+}
+
+export function useKeyActivity(
+  keyId: string | null,
+  { limit = 50, offset = 0 }: { limit?: number; offset?: number } = {},
+) {
+  return useQuery({
+    queryKey: ["keyActivity", keyId, { limit, offset }],
+    queryFn: () => {
+      const params = new URLSearchParams({
+        limit: String(limit),
+        offset: String(offset),
+      });
+      return api.get<ApiKeyActivityResponse>(
+        `/keys/${keyId}/activity?${params}`,
+      );
+    },
+    enabled: !!keyId,
   });
 }
 
@@ -211,8 +242,11 @@ export function useRawUsage() {
 
 export function useCheckout() {
   return useMutation({
-    mutationFn: (opts?: { successUrl?: string; cancelUrl?: string }) =>
-      api.post<{ url: string; sessionId: string }>("/billing/checkout", opts),
+    mutationFn: (opts?: {
+      successUrl?: string;
+      cancelUrl?: string;
+      plan?: "pro_monthly" | "pro_annual" | "team";
+    }) => api.post<{ url: string; sessionId: string }>("/billing/checkout", opts),
   });
 }
 

@@ -136,6 +136,23 @@ export function initMetaDb(dbPath) {
     metaDb.exec(`ALTER TABLE users ADD COLUMN client_key_share_hash TEXT`);
   }
 
+  // Add per-key activity log columns (idempotent)
+  const usageCols = metaDb
+    .prepare("PRAGMA table_info(usage_log)")
+    .all()
+    .map((c) => c.name);
+  if (!usageCols.includes("api_key_id")) {
+    metaDb.exec(`ALTER TABLE usage_log ADD COLUMN api_key_id TEXT`);
+    metaDb.exec(
+      `CREATE INDEX IF NOT EXISTS idx_usage_key_ts ON usage_log(api_key_id, timestamp) WHERE api_key_id IS NOT NULL`,
+    );
+  }
+  if (!usageCols.includes("status")) {
+    metaDb.exec(
+      `ALTER TABLE usage_log ADD COLUMN status TEXT NOT NULL DEFAULT 'success'`,
+    );
+  }
+
   return metaDb;
 }
 
@@ -196,7 +213,7 @@ export function prepareMetaStatements(db) {
 
     // API Keys
     createApiKey: db.prepare(
-      `INSERT INTO api_keys (id, user_id, key_hash, key_prefix, name, expires_at) VALUES (?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO api_keys (id, user_id, key_hash, key_prefix, name, scopes, expires_at) VALUES (?, ?, ?, ?, ?, ?, ?)`,
     ),
     getKeyByHash: db.prepare(
       `SELECT ak.*, u.tier, u.email, u.stripe_customer_id FROM api_keys ak JOIN users u ON ak.user_id = u.id WHERE ak.key_hash = ?`,
@@ -218,8 +235,25 @@ export function prepareMetaStatements(db) {
     countUsageToday: db.prepare(
       `SELECT COUNT(*) as c FROM usage_log WHERE user_id = ? AND operation = ? AND timestamp >= date('now')`,
     ),
+    countUsageThisWeek: db.prepare(
+      `SELECT COUNT(*) as c FROM usage_log WHERE user_id = ? AND operation = ? AND timestamp >= date('now', '-6 days')`,
+    ),
     countEntries: db.prepare(
       `SELECT COUNT(*) as c FROM usage_log WHERE user_id = ? AND operation = 'save_context'`,
+    ),
+
+    // Per-key activity log
+    logKeyActivity: db.prepare(
+      `INSERT INTO usage_log (user_id, api_key_id, operation, status) VALUES (?, ?, ?, ?)`,
+    ),
+    listKeyActivity: db.prepare(
+      `SELECT operation, timestamp, status FROM usage_log WHERE api_key_id = ? ORDER BY timestamp DESC LIMIT ? OFFSET ?`,
+    ),
+    countKeyActivity: db.prepare(
+      `SELECT COUNT(*) as c FROM usage_log WHERE api_key_id = ?`,
+    ),
+    pruneOldActivity: db.prepare(
+      `DELETE FROM usage_log WHERE api_key_id IS NOT NULL AND timestamp < datetime('now', '-30 days')`,
     ),
 
     // DEK (encryption)

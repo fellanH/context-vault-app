@@ -19,7 +19,7 @@ import {
   prepareStatements,
   insertVec,
   deleteVec,
-} from "@context-vault/core/index/db";
+} from "@context-vault/core/db";
 
 const MAX_POOL_SIZE = parseInt(process.env.USER_DB_POOL_SIZE || "100", 10);
 const IDLE_TIMEOUT_MS = 10 * 60 * 1000; // 10 minutes

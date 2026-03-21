@@ -20,10 +20,10 @@ import { Hono } from "hono";
 import { unlinkSync } from "node:fs";
 import { captureAndIndex, updateEntryFile } from "@context-vault/core/capture";
 import { indexEntry } from "@context-vault/core/index";
-import { hybridSearch } from "@context-vault/core/retrieve";
-import { gatherVaultStatus } from "@context-vault/core/core/status";
-import { normalizeKind } from "@context-vault/core/core/files";
-import { categoryFor } from "@context-vault/core/core/categories";
+import { hybridSearch } from "@context-vault/core/search";
+import { normalizeKind } from "@context-vault/core/files";
+import { categoryFor } from "@context-vault/core/categories";
+import { gatherVaultStatus } from "../server/vault-status.js";
 import { isOverEntryLimit } from "../billing/stripe.js";
 import { validateEntryInput } from "../validation/entry-validation.js";
 import { getCachedUserCtx } from "../server/user-ctx.js";
@@ -734,7 +734,7 @@ export function createVaultApiRoutes(ctx, masterSecret) {
 
       try {
         const { ingestUrl } =
-          await import("@context-vault/core/capture/ingest-url");
+          await import("@context-vault/core/ingest-url");
         const entry = await ingestUrl(data.url, {
           kind: data.kind,
           tags: data.tags,

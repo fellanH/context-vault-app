@@ -30,7 +30,7 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { WebStandardStreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js";
 import { join } from "node:path";
 import { writeFileSync, unlinkSync, readFileSync, statfsSync } from "node:fs";
-import { registerTools } from "@context-vault/core/server/tools";
+import { registerTools } from "./mcp/register-tools.js";
 import { createCtx, PER_USER_DB } from "./server/ctx.js";
 import {
   initMetaDb,

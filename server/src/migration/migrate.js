@@ -19,13 +19,12 @@
 
 import { readFileSync, writeFileSync, mkdirSync, existsSync } from "node:fs";
 import { join, resolve } from "node:path";
-import { walkDir } from "@context-vault/core/core/files";
+import { walkDir, kindToPath } from "@context-vault/core/files";
 import {
   parseFrontmatter,
   formatFrontmatter,
-} from "@context-vault/core/core/frontmatter";
-import { kindToPath } from "@context-vault/core/core/files";
-import { formatBody } from "@context-vault/core/capture/formatters";
+} from "@context-vault/core/frontmatter";
+import { formatBody } from "@context-vault/core/formatters";
 
 /**
  * Migrate local vault entries to hosted.

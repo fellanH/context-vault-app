@@ -36,9 +36,9 @@ import {
   prepareStatements,
   insertVec,
   deleteVec,
-} from "@context-vault/core/index/db";
-import { reindex } from "@context-vault/core/index/reindex";
-import { embed } from "@context-vault/core/index/embed";
+} from "@context-vault/core/db";
+import { reindex } from "@context-vault/core/index";
+import { embed } from "@context-vault/core/embed";
 
 // ─── CLI Args ────────────────────────────────────────────────────────────────
 

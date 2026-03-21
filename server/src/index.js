@@ -46,6 +46,7 @@ import { createVaultApiRoutes } from "./routes/vault-api.js";
 import { getCachedUserCtx } from "./server/user-ctx.js";
 import { pool } from "./server/user-db.js";
 import { scheduleBackups, lastBackupTimestamp } from "./backup/r2-backup.js";
+import { createAuth } from "./auth/auth.js";
 
 // ─── Config ─────────────────────────────────────────────────────────────────
 
@@ -124,6 +125,10 @@ const metaDb = initMetaDb(metaDbPath);
 prepareMetaStatements(metaDb);
 console.log(`[hosted] Meta DB: ${metaDbPath}`);
 console.log(`[hosted] Auth: ${AUTH_REQUIRED ? "required" : "open (dev mode)"}`);
+
+// ─── better-auth ─────────────────────────────────────────────────────────────
+
+const auth = await createAuth(ctx.config.dataDir);
 
 // ─── Automated Backups ───────────────────────────────────────────────────────
 
@@ -223,6 +228,20 @@ app.use(
     ],
   }),
 );
+
+// ─── better-auth routes (/api/auth/*) ────────────────────────────────────────
+
+app.on(["POST", "GET"], "/api/auth/*", (c) => {
+  return auth.handler(c.req.raw);
+});
+
+// Session middleware — injects user/session into Hono context for all routes
+app.use("*", async (c, next) => {
+  const session = await auth.api.getSession({ headers: c.req.raw.headers });
+  c.set("authUser", session?.user || null);
+  c.set("authSession", session?.session || null);
+  await next();
+});
 
 // Health check (unauthenticated) — real DB checks for Fly.io
 app.get("/health", (c) => {

@@ -1,12 +1,18 @@
 /**
  * auth.js — better-auth instance for the hosted server.
  *
- * Configures email/password + GitHub social login.
+ * Configures:
+ *   - Email/password + GitHub social login
+ *   - Organization plugin (teams, invites, roles)
+ *   - API key plugin (key generation, scoping, verification)
+ *
  * Uses better-sqlite3 for a dedicated auth database.
  * Mounted on Hono at /api/auth/*.
  */
 
 import { betterAuth } from "better-auth";
+import { organization } from "better-auth/plugins";
+import { apiKey } from "@better-auth/api-key";
 import Database from "better-sqlite3";
 import { join } from "node:path";
 import { mkdirSync } from "node:fs";
@@ -70,6 +76,19 @@ export async function createAuth(dataDir) {
         },
       },
     },
+
+    plugins: [
+      organization({
+        // Team size limits per pricing tier
+        membershipLimit: 50,
+        // Invitations expire after 7 days
+        invitationExpiresIn: 7 * 24 * 60 * 60,
+        // Allow all authenticated users to create orgs (tier checks in UI)
+        allowUserToCreateOrganization: true,
+      }),
+
+      apiKey(),
+    ],
 
     advanced: {
       // Use defaults for ID generation

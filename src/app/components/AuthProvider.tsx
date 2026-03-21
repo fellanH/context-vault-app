@@ -2,7 +2,11 @@ import { useState, useCallback, useMemo, useEffect } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { AuthContext, type AuthState } from "../lib/auth";
 import { authClient } from "../lib/auth-client";
-import { clearStoredEncryptionSecret } from "../lib/api";
+import {
+  api,
+  setStoredEncryptionSecret,
+  clearStoredEncryptionSecret,
+} from "../lib/api";
 import type { User } from "../lib/types";
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
@@ -27,8 +31,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const loginWithApiKey = useCallback(async (key: string) => {
-    // Legacy API key login - keep for backwards compat
-    const { api } = await import("../lib/api");
+    // Legacy API key login for backwards compat
     const raw = await api.post<any>("/auth/session", { apiKey: key });
     setUser({
       id: raw.userId || raw.id,
@@ -40,8 +43,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const register = useCallback(async (email: string, name?: string) => {
-    // Legacy register - kept for API key generation flow
-    const { api, setStoredEncryptionSecret } = await import("../lib/api");
+    // Legacy register for API key generation flow
     const raw = await api.post<any>("/register", { email, name });
     if (raw.encryptionSecret) {
       setStoredEncryptionSecret(raw.encryptionSecret);

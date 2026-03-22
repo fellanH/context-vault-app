@@ -16,9 +16,9 @@ import {
   prepareStatements,
   insertVec,
   deleteVec,
-} from "@context-vault/core/index/db";
-import { embed } from "@context-vault/core/index/embed";
-import { resolveConfig } from "@context-vault/core/core/config";
+} from "@context-vault/core/db";
+import { embed } from "@context-vault/core/embed";
+import { resolveConfig } from "@context-vault/core/config";
 import { existsSync, mkdirSync, unlinkSync } from "node:fs";
 import { join } from "node:path";
 

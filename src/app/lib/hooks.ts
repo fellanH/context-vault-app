@@ -242,8 +242,11 @@ export function useRawUsage() {
 
 export function useCheckout() {
   return useMutation({
-    mutationFn: (opts?: { successUrl?: string; cancelUrl?: string }) =>
-      api.post<{ url: string; sessionId: string }>("/billing/checkout", opts),
+    mutationFn: (opts?: {
+      successUrl?: string;
+      cancelUrl?: string;
+      plan?: "pro_monthly" | "pro_annual" | "team";
+    }) => api.post<{ url: string; sessionId: string }>("/billing/checkout", opts),
   });
 }
 

@@ -1,45 +1,50 @@
 import { useState, useCallback, useMemo, useEffect } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { AuthContext, type AuthState } from "../lib/auth";
+import { authClient } from "../lib/auth-client";
 import {
   api,
   setStoredEncryptionSecret,
   clearStoredEncryptionSecret,
 } from "../lib/api";
-import { transformUser } from "../lib/types";
-import type { User, ApiUserResponse, ApiRegisterResponse } from "../lib/types";
+import type { User } from "../lib/types";
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const queryClient = useQueryClient();
   const [user, setUser] = useState<User | null>(null);
   const [isLoading, setIsLoading] = useState(true);
 
-  // On mount: call /me unconditionally — session cookie is sent automatically
+  // On mount: check for existing session via better-auth
   useEffect(() => {
-    api
-      .get<ApiUserResponse>("/me")
-      .then((raw) => {
-        setUser(transformUser(raw));
-      })
-      .catch(() => {
-        // Not authenticated — stay unauthenticated
-      })
-      .finally(() => setIsLoading(false));
+    authClient.getSession().then(({ data }) => {
+      if (data?.user) {
+        setUser({
+          id: data.user.id,
+          email: data.user.email,
+          name: data.user.name || undefined,
+          tier: (data.user as any).tier || "free",
+          createdAt: new Date(data.user.createdAt),
+        });
+      }
+      setIsLoading(false);
+    });
   }, []);
 
   const loginWithApiKey = useCallback(async (key: string) => {
-    const raw = await api.post<ApiUserResponse>("/auth/session", {
-      apiKey: key,
+    // Legacy API key login for backwards compat
+    const raw = await api.post<any>("/auth/session", { apiKey: key });
+    setUser({
+      id: raw.userId || raw.id,
+      email: raw.email,
+      name: raw.name,
+      tier: raw.tier || "free",
+      createdAt: new Date(raw.createdAt || Date.now()),
     });
-    setUser(transformUser(raw));
   }, []);
 
   const register = useCallback(async (email: string, name?: string) => {
-    const raw = await api.post<ApiRegisterResponse>("/register", {
-      email,
-      name,
-    });
-
+    // Legacy register for API key generation flow
+    const raw = await api.post<any>("/register", { email, name });
     if (raw.encryptionSecret) {
       setStoredEncryptionSecret(raw.encryptionSecret);
     }
@@ -50,12 +55,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       name: name || undefined,
       createdAt: new Date(),
     });
-
     return { apiKey: raw.apiKey.key };
   }, []);
 
   const logout = useCallback(async () => {
-    await api.post("/auth/logout").catch(() => {});
+    await authClient.signOut();
     clearStoredEncryptionSecret();
     queryClient.clear();
     setUser(null);

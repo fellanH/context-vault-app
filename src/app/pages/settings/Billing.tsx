@@ -16,10 +16,14 @@ import { useUsage, useCheckout, usePortal } from "../../lib/hooks";
 import { formatMegabytes } from "../../lib/format";
 import { toast } from "sonner";
 
+type BillingPeriod = "monthly" | "annual";
+
+const PRO_MONTHLY_PRICE = 9;
+const PRO_ANNUAL_PRICE = 90; // $90/yr = $7.50/mo
+
 const plans = [
   {
     tier: "free" as const,
-    price: "$0",
     features: [
       "Hosted vault & MCP",
       "Unlimited entries",
@@ -31,8 +35,6 @@ const plans = [
   },
   {
     tier: "pro" as const,
-    price: "$9",
-    period: "/mo",
     features: [
       "Unlimited entries",
       "5 GB storage",
@@ -45,8 +47,6 @@ const plans = [
   },
   {
     tier: "team" as const,
-    price: "$29",
-    period: "/mo",
     features: [
       "Unlimited entries",
       "20 GB storage",
@@ -65,6 +65,7 @@ export function Billing() {
   const checkoutMutation = useCheckout();
   const portalMutation = usePortal();
   const [searchParams, setSearchParams] = useSearchParams();
+  const [billingPeriod, setBillingPeriod] = useState<BillingPeriod>("monthly");
   const [showLocalBanner, setShowLocalBanner] = useState(
     () => localStorage.getItem("cv-dismissed-local-banner") !== "true",
   );
@@ -100,8 +101,15 @@ export function Billing() {
       toast.info("Contact us at team@context-vault.com for Team plans");
       return;
     }
+    const plan =
+      tier === "pro"
+        ? billingPeriod === "annual"
+          ? "pro_annual"
+          : "pro_monthly"
+        : undefined;
     checkoutMutation.mutate(
       {
+        plan,
         successUrl: `${window.location.origin}/settings/billing?upgraded=true`,
         cancelUrl: window.location.href,
       },
@@ -254,9 +262,62 @@ export function Billing() {
         </div>
       )}
 
+      {/* Billing period toggle — only shown when user is not yet on a paid tier */}
+      {currentTier === "free" && (
+        <div className="flex items-center justify-center">
+          <div className="inline-flex items-center rounded-full border bg-muted p-1 gap-1">
+            <button
+              onClick={() => setBillingPeriod("monthly")}
+              className={`rounded-full px-4 py-1.5 text-sm font-medium transition-colors ${
+                billingPeriod === "monthly"
+                  ? "bg-background text-foreground shadow-sm"
+                  : "text-muted-foreground hover:text-foreground"
+              }`}
+            >
+              Monthly
+            </button>
+            <button
+              onClick={() => setBillingPeriod("annual")}
+              className={`rounded-full px-4 py-1.5 text-sm font-medium transition-colors flex items-center gap-1.5 ${
+                billingPeriod === "annual"
+                  ? "bg-background text-foreground shadow-sm"
+                  : "text-muted-foreground hover:text-foreground"
+              }`}
+            >
+              Annual
+              <span className="rounded-full bg-primary/10 px-1.5 py-0.5 text-[10px] font-semibold text-primary leading-none">
+                Save 17%
+              </span>
+            </button>
+          </div>
+        </div>
+      )}
+
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
         {plans.map((plan) => {
           const isCurrent = plan.tier === currentTier;
+          const isProPlan = plan.tier === "pro";
+
+          let priceDisplay = "$0";
+          let periodDisplay: string | null = null;
+          let savingsCallout: string | null = null;
+
+          if (plan.tier === "free") {
+            priceDisplay = "$0";
+          } else if (isProPlan) {
+            if (billingPeriod === "annual" && currentTier === "free") {
+              priceDisplay = `$${PRO_ANNUAL_PRICE}`;
+              periodDisplay = "/yr";
+              savingsCallout = `$${Math.round(PRO_ANNUAL_PRICE / 12 * 10) / 10}/mo — 2 months free`;
+            } else {
+              priceDisplay = `$${PRO_MONTHLY_PRICE}`;
+              periodDisplay = "/mo";
+            }
+          } else if (plan.tier === "team") {
+            priceDisplay = "$29";
+            periodDisplay = "/mo";
+          }
+
           return (
             <Card key={plan.tier} className={isCurrent ? "border-primary" : ""}>
               <CardHeader className="pb-3">
@@ -271,11 +332,16 @@ export function Billing() {
                   )}
                 </div>
                 <div className="mt-2">
-                  <span className="text-2xl font-bold">{plan.price}</span>
-                  {plan.period && (
+                  <span className="text-2xl font-bold">{priceDisplay}</span>
+                  {periodDisplay && (
                     <span className="text-sm text-muted-foreground">
-                      {plan.period}
+                      {periodDisplay}
                     </span>
+                  )}
+                  {savingsCallout && (
+                    <p className="mt-1 text-xs text-primary font-medium">
+                      {savingsCallout}
+                    </p>
                   )}
                 </div>
               </CardHeader>

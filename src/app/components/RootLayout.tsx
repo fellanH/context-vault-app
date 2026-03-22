@@ -20,6 +20,8 @@ import {
   ScrollText,
   BookOpen,
   Layers,
+  Menu,
+  X,
 } from "lucide-react";
 import { useTheme } from "next-themes";
 import { Button } from "./ui/button";
@@ -84,8 +86,10 @@ export function RootLayout() {
   });
   const { data: teams } = useTeams();
   const [avatarOpen, setAvatarOpen] = useState(false);
+  const [sidebarOpen, setSidebarOpen] = useState(false);
   const avatarRef = useRef<HTMLDivElement>(null);
 
+  // Close avatar dropdown on outside click
   useEffect(() => {
     const handleClick = (e: MouseEvent) => {
       if (avatarRef.current && !avatarRef.current.contains(e.target as Node)) {
@@ -95,6 +99,11 @@ export function RootLayout() {
     document.addEventListener("mousedown", handleClick);
     return () => document.removeEventListener("mousedown", handleClick);
   }, []);
+
+  // Close mobile sidebar on navigation
+  useEffect(() => {
+    setSidebarOpen(false);
+  }, [location.pathname]);
 
   // Auth loading state — full-page spinner
   if (authLoading) {
@@ -150,13 +159,34 @@ export function RootLayout() {
 
   return (
     <div className="flex h-screen bg-background">
+      {/* Mobile sidebar backdrop */}
+      {sidebarOpen && (
+        <div
+          className="fixed inset-0 bg-black/40 z-40 lg:hidden"
+          onClick={() => setSidebarOpen(false)}
+        />
+      )}
+
       {/* Sidebar */}
-      <aside className="w-60 border-r border-border bg-card flex flex-col">
+      <aside
+        className={`fixed inset-y-0 left-0 z-50 w-60 border-r border-border bg-card flex flex-col transform transition-transform duration-200 lg:relative lg:translate-x-0 ${
+          sidebarOpen ? "translate-x-0" : "-translate-x-full"
+        }`}
+      >
         {/* Logo */}
-        <div className="px-4 h-14 flex items-center border-b border-border">
+        <div className="px-4 h-14 flex items-center justify-between border-b border-border">
           <Link to="/" className="text-base font-semibold tracking-tight">
             Context Vault
           </Link>
+          <Button
+            variant="ghost"
+            size="icon"
+            className="size-8 lg:hidden"
+            onClick={() => setSidebarOpen(false)}
+            aria-label="Close sidebar"
+          >
+            <X className="size-4" />
+          </Button>
         </div>
 
         {/* Navigation */}
@@ -276,8 +306,17 @@ export function RootLayout() {
       {/* Main Content */}
       <div className="flex-1 flex flex-col overflow-hidden">
         {/* Top Bar */}
-        <header className="h-14 border-b border-border bg-card px-6 flex items-center justify-between">
+        <header className="h-14 border-b border-border bg-card px-4 lg:px-6 flex items-center justify-between">
           <div className="flex items-center gap-2">
+            <Button
+              variant="ghost"
+              size="icon"
+              className="size-8 lg:hidden"
+              onClick={() => setSidebarOpen(true)}
+              aria-label="Open sidebar"
+            >
+              <Menu className="size-4" />
+            </Button>
             <h2 className="text-sm font-medium">
               {getPageTitle(location.pathname)}
             </h2>

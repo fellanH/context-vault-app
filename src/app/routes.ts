@@ -48,6 +48,7 @@ export const router = createBrowserRouter([
       { path: "settings/account", Component: Account },
       { path: "settings/sync", Component: Sync },
       { path: "settings/agent-rules", Component: AgentRules },
+      { path: "*", Component: NotFound },
     ],
   },
   { path: "*", Component: NotFound },

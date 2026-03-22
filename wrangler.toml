@@ -15,7 +15,7 @@ enabled = true
 AUTH_REQUIRED = "true"
 APP_URL = "https://app.context-vault.com"
 API_URL = "https://api.context-vault.com"
-CORS_ORIGIN = "https://app.context-vault.com,https://context-vault-app.vercel.app"
+CORS_ORIGIN = "https://app.context-vault.com,https://context-vault-app.pages.dev"
 
 [[r2_buckets]]
 binding = "R2_PRIVATE"

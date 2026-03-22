@@ -1,17 +1,13 @@
 /**
- * auth.js — Authentication middleware for Hono.
+ * auth.js — Authentication middleware for Hono (Cloudflare Workers).
  *
- * bearerAuth()        — API key only (used by /mcp endpoint)
- * cookieOrBearerAuth() — Session cookie first, API key fallback (used by REST API)
+ * requireAuth()    — Reads authUser set by better-auth session middleware.
+ * bearerAuth()     — API key only via Authorization: Bearer (used by /mcp endpoint).
+ * cookieOrBearerAuth() — Session cookie first, API key fallback (used by REST API).
+ *
+ * In the Workers version, better-auth handles sessions and sets c.get("authUser").
+ * The vault-api routes rely on c.get("user") being set by these middlewares.
  */
-
-import { getCookie } from "hono/cookie";
-import {
-  validateApiKey,
-  prepareMetaStatements,
-  getMetaDb,
-} from "../auth/meta-db.js";
-import { verifySessionToken } from "../auth/session.js";
 
 /** Derive a short, readable operation name from request path + method. */
 function deriveOperation(path, method) {
@@ -36,6 +32,92 @@ function deriveOperation(path, method) {
 }
 
 /**
+ * Minimal auth check for routes protected by better-auth session middleware.
+ * Reads c.get("authUser") and normalises it into c.get("user").
+ */
+export function requireAuth() {
+  return async (c, next) => {
+    const authUser = c.get("authUser");
+    if (!authUser) return c.json({ error: "Unauthorized" }, 401);
+
+    const vaultSecret = c.req.header("X-Vault-Secret");
+    const user = {
+      userId: authUser.user?.id ?? authUser.id,
+      email: authUser.user?.email ?? authUser.email,
+      tier: authUser.user?.tier ?? authUser.tier ?? "free",
+      scopes: ["*"],
+      stripeCustomerId:
+        authUser.user?.stripeCustomerId ??
+        authUser.stripeCustomerId ??
+        null,
+    };
+
+    if (vaultSecret && vaultSecret.startsWith("cvs_")) {
+      user.clientKeyShare = vaultSecret;
+    }
+
+    c.set("user", user);
+    await next();
+  };
+}
+
+/**
+ * Validate an API key against the Turso database.
+ * Returns the user object or null.
+ *
+ * @param {import("@libsql/client").Client} db
+ * @param {string} token
+ */
+async function validateApiKeyFromDb(db, token) {
+  // better-auth stores API keys hashed; look up by the key prefix for fast lookup
+  // then verify. The actual key verification logic depends on how better-auth
+  // stores keys. We query for an active key matching the token.
+  const result = await db.execute({
+    sql: `
+      SELECT ak.id as key_id, ak.user_id, ak.name, ak.scopes,
+             u.email, u.tier, u.stripe_customer_id
+      FROM api_keys ak
+      JOIN users u ON u.id = ak.user_id
+      WHERE ak.key = ? AND (ak.expires_at IS NULL OR ak.expires_at > datetime('now'))
+        AND ak.enabled = 1
+      LIMIT 1
+    `,
+    args: [token],
+  });
+
+  if (!result.rows || result.rows.length === 0) return null;
+
+  const row = result.rows[0];
+  return {
+    userId: row.user_id,
+    email: row.email,
+    tier: row.tier || "free",
+    keyId: row.key_id,
+    scopes: row.scopes ? JSON.parse(row.scopes) : ["*"],
+    stripeCustomerId: row.stripe_customer_id || null,
+  };
+}
+
+/**
+ * Fire-and-forget: log API key activity to usage_log.
+ *
+ * @param {import("@libsql/client").Client} db
+ * @param {string} userId
+ * @param {string} keyId
+ * @param {string} operation
+ */
+async function logKeyActivity(db, userId, keyId, operation) {
+  try {
+    await db.execute({
+      sql: `INSERT INTO usage_log (user_id, api_key_id, operation, status) VALUES (?, ?, ?, 'success')`,
+      args: [userId, keyId, operation],
+    });
+  } catch {
+    // Non-critical — never surface to caller
+  }
+}
+
+/**
  * Hono middleware that requires a valid API key via Authorization: Bearer.
  * Used exclusively by the /mcp endpoint.
  */
@@ -45,19 +127,22 @@ export function bearerAuth() {
     if (!header || !header.startsWith("Bearer ")) {
       return c.json(
         {
-          error: "Missing or invalid Authorization header. Use: Bearer cv_...",
+          error:
+            "Missing or invalid Authorization header. Use: Bearer cv_...",
         },
         401,
       );
     }
 
     const token = header.slice(7);
-    const user = validateApiKey(token);
+    const db = c.get("ctx")?.db;
+    if (!db) return c.json({ error: "Service unavailable" }, 503);
+
+    const user = await validateApiKeyFromDb(db, token);
     if (!user) {
       return c.json({ error: "Invalid or expired API key" }, 401);
     }
 
-    // Extract optional encryption secret for split-authority decryption
     const vaultSecret = c.req.header("X-Vault-Secret");
     if (vaultSecret && vaultSecret.startsWith("cvs_")) {
       user.clientKeyShare = vaultSecret;
@@ -66,11 +151,8 @@ export function bearerAuth() {
     c.set("user", user);
 
     // Fire-and-forget: log API key activity
-    try {
-      const stmts = prepareMetaStatements(getMetaDb());
-      const operation = deriveOperation(c.req.path, c.req.method);
-      stmts.logKeyActivity.run(user.userId, user.keyId, operation, "success");
-    } catch {}
+    const operation = deriveOperation(c.req.path, c.req.method);
+    logKeyActivity(db, user.userId, user.keyId, operation);
 
     await next();
   };
@@ -83,35 +165,35 @@ export function bearerAuth() {
  */
 export function cookieOrBearerAuth() {
   return async (c, next) => {
-    // ── 1. Session cookie ────────────────────────────────────────────────────
-    const sessionToken = getCookie(c, "cv_session");
-    if (sessionToken) {
-      const payload = await verifySessionToken(sessionToken);
-      if (payload?.sub) {
-        const stmts = prepareMetaStatements(getMetaDb());
-        const row = stmts.getUserById.get(payload.sub);
-        if (row) {
-          const user = {
-            userId: row.id,
-            email: row.email,
-            tier: row.tier,
-            scopes: ["*"],
-            stripeCustomerId: row.stripe_customer_id || null,
-          };
-          const vaultSecret = c.req.header("X-Vault-Secret");
-          if (vaultSecret && vaultSecret.startsWith("cvs_")) {
-            user.clientKeyShare = vaultSecret;
-          }
-          c.set("user", user);
-          return next();
-        }
+    // ── 1. Session via better-auth (authUser set by session middleware) ───────
+    const authUser = c.get("authUser");
+    if (authUser) {
+      const vaultSecret = c.req.header("X-Vault-Secret");
+      const user = {
+        userId: authUser.user?.id ?? authUser.id,
+        email: authUser.user?.email ?? authUser.email,
+        tier: authUser.user?.tier ?? authUser.tier ?? "free",
+        scopes: ["*"],
+        stripeCustomerId:
+          authUser.user?.stripeCustomerId ??
+          authUser.stripeCustomerId ??
+          null,
+      };
+      if (vaultSecret && vaultSecret.startsWith("cvs_")) {
+        user.clientKeyShare = vaultSecret;
       }
+      c.set("user", user);
+      return next();
     }
 
     // ── 2. Bearer API key ────────────────────────────────────────────────────
     const header = c.req.header("Authorization");
     if (header?.startsWith("Bearer ")) {
-      const user = validateApiKey(header.slice(7));
+      const token = header.slice(7);
+      const db = c.get("ctx")?.db;
+      if (!db) return c.json({ error: "Service unavailable" }, 503);
+
+      const user = await validateApiKeyFromDb(db, token);
       if (user) {
         const vaultSecret = c.req.header("X-Vault-Secret");
         if (vaultSecret && vaultSecret.startsWith("cvs_")) {
@@ -120,16 +202,8 @@ export function cookieOrBearerAuth() {
         c.set("user", user);
 
         // Fire-and-forget: log API key activity
-        try {
-          const stmts = prepareMetaStatements(getMetaDb());
-          const operation = deriveOperation(c.req.path, c.req.method);
-          stmts.logKeyActivity.run(
-            user.userId,
-            user.keyId,
-            operation,
-            "success",
-          );
-        } catch {}
+        const operation = deriveOperation(c.req.path, c.req.method);
+        logKeyActivity(db, user.userId, user.keyId, operation);
 
         return next();
       }

@@ -1,13 +1,49 @@
-// libSQL adapter for per-user databases. Async API (vs better-sqlite3 sync).
-// No sqlite-vec — embeddings are handled separately. Schema mirrors local vault v5.
+/**
+ * turso.js -- Turso (libSQL) data layer for the hosted server.
+ *
+ * Single database for all hosted data: auth tables (managed by better-auth),
+ * meta tables (usage, rate limits, webhooks), and per-user vault tables.
+ *
+ * In the current model, all users share one Turso database with user_id
+ * filtering. Per-user databases can be added later via Turso's multi-DB
+ * support without changing the query interface.
+ */
 
-import { createClient } from "@libsql/client";
+import { createClient } from "@libsql/client/web";
 
-// Schema for Turso user vaults — same as local v5 but without sqlite-vec
-// and with encrypted columns added
-const TURSO_SCHEMA = `
+// ─── Schema ──────────────────────────────────────────────────────────────────
+
+export const META_SCHEMA = `
+  CREATE TABLE IF NOT EXISTS usage_log (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id         TEXT NOT NULL,
+    api_key_id      TEXT,
+    operation       TEXT NOT NULL,
+    status          TEXT NOT NULL DEFAULT 'success',
+    timestamp       TEXT DEFAULT (datetime('now'))
+  );
+
+  CREATE INDEX IF NOT EXISTS idx_usage_user_ts ON usage_log(user_id, timestamp);
+  CREATE INDEX IF NOT EXISTS idx_usage_key_ts ON usage_log(api_key_id, timestamp)
+    WHERE api_key_id IS NOT NULL;
+
+  CREATE TABLE IF NOT EXISTS processed_webhooks (
+    event_id     TEXT PRIMARY KEY,
+    event_type   TEXT NOT NULL,
+    processed_at TEXT DEFAULT (datetime('now'))
+  );
+
+  CREATE TABLE IF NOT EXISTS rate_limits (
+    key          TEXT PRIMARY KEY,
+    count        INTEGER NOT NULL DEFAULT 0,
+    window_start TEXT NOT NULL DEFAULT (datetime('now'))
+  );
+`;
+
+export const VAULT_SCHEMA = `
   CREATE TABLE IF NOT EXISTS vault (
     id              TEXT PRIMARY KEY,
+    user_id         TEXT NOT NULL,
     kind            TEXT NOT NULL,
     category        TEXT NOT NULL DEFAULT 'knowledge',
     title           TEXT,
@@ -15,21 +51,33 @@ const TURSO_SCHEMA = `
     meta            TEXT,
     tags            TEXT,
     source          TEXT,
-    file_path       TEXT UNIQUE,
     identity_key    TEXT,
     expires_at      TEXT,
-    created_at      TEXT DEFAULT (datetime('now')),
+    superseded_by   TEXT,
+    tier            TEXT DEFAULT 'working' CHECK(tier IN ('ephemeral', 'working', 'durable')),
+    related_to      TEXT,
+    source_files    TEXT,
+    hit_count       INTEGER DEFAULT 0,
+    last_accessed_at TEXT,
     body_encrypted  BLOB,
     title_encrypted BLOB,
     meta_encrypted  BLOB,
     iv              BLOB,
-    version         INTEGER DEFAULT 1
+    created_at      TEXT DEFAULT (datetime('now')),
+    updated_at      TEXT
   );
 
+  CREATE INDEX IF NOT EXISTS idx_vault_user ON vault(user_id);
   CREATE INDEX IF NOT EXISTS idx_vault_kind ON vault(kind);
   CREATE INDEX IF NOT EXISTS idx_vault_category ON vault(category);
   CREATE INDEX IF NOT EXISTS idx_vault_category_created ON vault(category, created_at DESC);
-  CREATE UNIQUE INDEX IF NOT EXISTS idx_vault_identity ON vault(kind, identity_key) WHERE identity_key IS NOT NULL;
+  CREATE INDEX IF NOT EXISTS idx_vault_updated ON vault(updated_at DESC);
+  CREATE UNIQUE INDEX IF NOT EXISTS idx_vault_identity
+    ON vault(user_id, kind, identity_key)
+    WHERE identity_key IS NOT NULL AND category = 'entity';
+  CREATE INDEX IF NOT EXISTS idx_vault_superseded ON vault(superseded_by)
+    WHERE superseded_by IS NOT NULL;
+  CREATE INDEX IF NOT EXISTS idx_vault_tier ON vault(tier);
 
   CREATE VIRTUAL TABLE IF NOT EXISTS vault_fts USING fts5(
     title, body, tags, kind,
@@ -52,92 +100,57 @@ const TURSO_SCHEMA = `
   END;
 `;
 
+// ─── Client ──────────────────────────────────────────────────────────────────
+
 /**
- * Create a libSQL client for a user's vault.
+ * Create a libSQL client for the hosted database.
  *
- * @param {string} url - Turso database URL or local file path (file:///path/to/db)
- * @param {string} [authToken] - Turso auth token (for remote DBs)
+ * @param {string} url - Turso database URL (libsql://...)
+ * @param {string} authToken - Turso auth token
  * @returns {import("@libsql/client").Client}
  */
 export function createTursoClient(url, authToken) {
-  const client = createClient({
-    url,
-    authToken,
-  });
-  return client;
+  return createClient({ url, authToken });
 }
 
 /**
- * Initialize the Turso vault schema.
+ * Initialize schemas (idempotent). Call once on first request.
  *
  * @param {import("@libsql/client").Client} client
  */
-export async function initTursoSchema(client) {
-  // libSQL executeMultiple handles multi-statement SQL
-  await client.executeMultiple(TURSO_SCHEMA);
+export async function initSchemas(client) {
+  await client.executeMultiple(META_SCHEMA);
+  await client.executeMultiple(VAULT_SCHEMA);
+}
+
+// ─── Query Helpers ───────────────────────────────────────────────────────────
+
+/**
+ * @param {import("@libsql/client").Client} db
+ * @param {string} sql
+ * @param {any[]} [args]
+ */
+export async function queryAll(db, sql, args = []) {
+  const result = await db.execute({ sql, args });
+  return result.rows;
 }
 
 /**
- * Create a ctx-compatible adapter that wraps a libSQL client
- * to match the interface expected by registerTools.
- *
- * This adapter converts the synchronous better-sqlite3 interface
- * used by core into async libSQL calls.
- *
- * NOTE: This is a compatibility shim. The core tools use ctx.db.prepare().all()
- * etc. (synchronous), but libSQL is async. For the hosted mode, we use the
- * local better-sqlite3 ctx (from createCtx) for now and will migrate
- * to full async Turso when we refactor core for async DB operations.
- *
- * @param {import("@libsql/client").Client} client
- * @returns {object} A partial ctx.db-like interface
+ * @param {import("@libsql/client").Client} db
+ * @param {string} sql
+ * @param {any[]} [args]
  */
-export function createTursoAdapter(client) {
-  return {
-    client,
-
-    /**
-     * Execute a single SQL statement and return all rows.
-     */
-    async query(sql, params = []) {
-      const result = await client.execute({ sql, args: params });
-      return result.rows;
-    },
-
-    /**
-     * Execute a single SQL statement and return the first row.
-     */
-    async queryOne(sql, params = []) {
-      const result = await client.execute({ sql, args: params });
-      return result.rows[0] || null;
-    },
-
-    /**
-     * Execute a write statement (INSERT/UPDATE/DELETE).
-     */
-    async execute(sql, params = []) {
-      const result = await client.execute({ sql, args: params });
-      return {
-        changes: result.rowsAffected,
-        lastInsertRowid: result.lastInsertRowid,
-      };
-    },
-
-    /**
-     * Execute multiple statements in a batch (transaction-like).
-     */
-    async batch(statements) {
-      return client.batch(
-        statements.map((s) => ({ sql: s.sql, args: s.params || [] })),
-        "write",
-      );
-    },
-
-    /** Close the client connection. */
-    close() {
-      client.close();
-    },
-  };
+export async function queryOne(db, sql, args = []) {
+  const result = await db.execute({ sql, args });
+  return result.rows[0] || null;
 }
 
-export { TURSO_SCHEMA };
+/**
+ * @param {import("@libsql/client").Client} db
+ * @param {string} sql
+ * @param {any[]} [args]
+ */
+export async function execute(db, sql, args = []) {
+  const result = await db.execute({ sql, args });
+  return { changes: result.rowsAffected, lastInsertRowid: result.lastInsertRowid };
+}

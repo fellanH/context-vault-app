@@ -1,101 +1,123 @@
 /**
  * keys.js — Key derivation and DEK (Data Encryption Key) management.
  *
- * Architecture:
- *   user password → scrypt → master_key → encrypts DEK
- *   DEK stored encrypted in meta DB (encrypted_dek + dek_salt columns)
- *   DEK held in memory during active sessions only
+ * Uses the Web Crypto API (PBKDF2 + AES-GCM) — compatible with Cloudflare Workers.
  *
- * For the initial implementation, we use a server-managed master key
- * (from environment variable) rather than user passwords.
- * This gives "encrypted at rest" protection without requiring users to
- * manage passwords — same model as most cloud services.
+ * Architecture:
+ *   master secret → PBKDF2 → master_key → AES-GCM encrypts DEK
+ *   DEK stored encrypted in Turso (encrypted_dek + dek_salt columns as base64)
+ *
+ * Workers are stateless — no in-memory DEK cache. Every request derives the DEK
+ * from the encrypted blob. PBKDF2 with 100k iterations is fast enough per request
+ * (~1-5ms on Workers hardware).
+ *
+ * All functions are async.
+ * Raw bytes are Uint8Array; encode to base64 for Turso storage.
  */
 
-import { scryptSync, randomBytes } from "node:crypto";
-import { encrypt, decrypt } from "./crypto.js";
+import { encrypt, decrypt, importAesKey, toBase64, fromBase64 } from "./crypto.js";
 
-const KEY_LENGTH = 32; // 256 bits for AES-256
-const SCRYPT_N = 16384;
-const SCRYPT_R = 8;
-const SCRYPT_P = 1;
+const KEY_LENGTH_BYTES = 32; // 256 bits for AES-256
+const IV_LENGTH_BYTES = 12; // GCM standard nonce size
+const PBKDF2_ITERATIONS = 100_000;
+const SALT_LENGTH_BYTES = 16;
+
+// ─── PBKDF2 key derivation ────────────────────────────────────────────────────
 
 /**
- * Derive a 256-bit key from a password/secret and salt using scrypt.
+ * Derive a 256-bit AES-GCM CryptoKey from a password/secret and salt using PBKDF2.
  *
  * @param {string} secret - Password or master secret
- * @param {Buffer} salt - 16-byte random salt
- * @returns {Buffer} - 32-byte derived key
+ * @param {Uint8Array} salt - 16-byte random salt
+ * @returns {Promise<CryptoKey>} - AES-256-GCM CryptoKey (non-extractable)
  */
-export function deriveKey(secret, salt) {
-  return scryptSync(secret, salt, KEY_LENGTH, {
-    N: SCRYPT_N,
-    r: SCRYPT_R,
-    p: SCRYPT_P,
-  });
+export async function deriveKey(secret, salt) {
+  const keyMaterial = await crypto.subtle.importKey(
+    "raw",
+    new TextEncoder().encode(secret),
+    "PBKDF2",
+    false,
+    ["deriveBits"],
+  );
+
+  const bits = await crypto.subtle.deriveBits(
+    {
+      name: "PBKDF2",
+      salt,
+      iterations: PBKDF2_ITERATIONS,
+      hash: "SHA-256",
+    },
+    keyMaterial,
+    KEY_LENGTH_BYTES * 8, // bits
+  );
+
+  return importAesKey(new Uint8Array(bits));
 }
+
+// ─── DEK generation and encryption ───────────────────────────────────────────
 
 /**
  * Generate a new random DEK and encrypt it with the master key.
  *
  * @param {string} masterSecret - Server master secret (from env)
- * @returns {{ encryptedDek: Buffer, dekSalt: Buffer, dek: Buffer }}
+ * @returns {Promise<{ encryptedDek: string, dekSalt: string, dekRaw: Uint8Array }>}
+ *   encryptedDek and dekSalt are base64-encoded for Turso storage.
+ *   dekRaw is the raw DEK bytes for immediate use (not stored).
  */
-export function generateDek(masterSecret) {
-  const dek = randomBytes(KEY_LENGTH);
-  const dekSalt = randomBytes(16);
-  const masterKey = deriveKey(masterSecret, dekSalt);
-  const { encrypted, iv } = encrypt(dek.toString("hex"), masterKey);
+export async function generateDek(masterSecret) {
+  const dekRaw = crypto.getRandomValues(new Uint8Array(KEY_LENGTH_BYTES));
+  const dekSaltBytes = crypto.getRandomValues(
+    new Uint8Array(SALT_LENGTH_BYTES),
+  );
+  const masterKey = await deriveKey(masterSecret, dekSaltBytes);
 
-  // Store IV + encrypted DEK together
-  const encryptedDek = Buffer.concat([iv, encrypted]);
+  // Encrypt the DEK hex string so we can recover raw bytes on decryption
+  const { encrypted, iv } = await encrypt(toBase64(dekRaw), masterKey);
 
-  return { encryptedDek, dekSalt, dek };
+  // Store: [12-byte IV | ciphertext+tag] as base64
+  const encryptedDekBytes = new Uint8Array(IV_LENGTH_BYTES + encrypted.byteLength);
+  encryptedDekBytes.set(iv, 0);
+  encryptedDekBytes.set(encrypted, IV_LENGTH_BYTES);
+
+  return {
+    encryptedDek: toBase64(encryptedDekBytes),
+    dekSalt: toBase64(dekSaltBytes),
+    dekRaw,
+  };
 }
 
 /**
  * Decrypt a stored DEK using the master key.
  *
- * @param {Buffer} encryptedDek - IV (12 bytes) + encrypted DEK
- * @param {Buffer} dekSalt - Salt used for master key derivation
+ * @param {string} encryptedDekB64 - Base64 of [IV (12 bytes) | ciphertext+tag]
+ * @param {string} dekSaltB64 - Base64 of the 16-byte PBKDF2 salt
  * @param {string} masterSecret - Server master secret
- * @returns {Buffer} - 32-byte DEK
+ * @returns {Promise<Uint8Array>} - 32-byte raw DEK
  */
-export function decryptDek(encryptedDek, dekSalt, masterSecret) {
-  const iv = encryptedDek.subarray(0, 12);
-  const encrypted = encryptedDek.subarray(12);
-  const masterKey = deriveKey(masterSecret, dekSalt);
-  const dekHex = decrypt(encrypted, iv, masterKey);
-  return Buffer.from(dekHex, "hex");
+export async function decryptDek(encryptedDekB64, dekSaltB64, masterSecret) {
+  const encryptedDekBytes = fromBase64(encryptedDekB64);
+  const dekSaltBytes = fromBase64(dekSaltB64);
+
+  const iv = encryptedDekBytes.subarray(0, IV_LENGTH_BYTES);
+  const encrypted = encryptedDekBytes.subarray(IV_LENGTH_BYTES);
+
+  const masterKey = await deriveKey(masterSecret, dekSaltBytes);
+  const dekB64 = await decrypt(encrypted, iv, masterKey);
+  return fromBase64(dekB64);
 }
 
 /**
- * In-memory DEK cache keyed by userId.
- * DEKs are cached for the lifetime of the server process.
- */
-const dekCache = new Map();
-
-/**
- * Get or derive the DEK for a user.
- * Caches the result in memory.
+ * Get the AES-256-GCM CryptoKey for a user by decrypting their stored DEK.
+ * No caching — Workers are stateless; derive on each request.
  *
- * @param {string} userId
- * @param {Buffer} encryptedDek - From meta DB
- * @param {Buffer} dekSalt - From meta DB
+ * @param {string} encryptedDekB64 - From Turso
+ * @param {string} dekSaltB64 - From Turso
  * @param {string} masterSecret - From environment
- * @returns {Buffer} - 32-byte DEK
+ * @returns {Promise<CryptoKey>}
  */
-export function getUserDek(userId, encryptedDek, dekSalt, masterSecret) {
-  if (dekCache.has(userId)) return dekCache.get(userId);
-  const dek = decryptDek(encryptedDek, dekSalt, masterSecret);
-  dekCache.set(userId, dek);
-  return dek;
-}
-
-/** Clear cached DEK (e.g., on key rotation). */
-export function clearDekCache(userId) {
-  if (userId) dekCache.delete(userId);
-  else dekCache.clear();
+export async function getUserDek(encryptedDekB64, dekSaltB64, masterSecret) {
+  const dekRaw = await decryptDek(encryptedDekB64, dekSaltB64, masterSecret);
+  return importAesKey(dekRaw);
 }
 
 // ─── Split-Authority Key Management ──────────────────────────────────────────
@@ -106,92 +128,94 @@ export function clearDekCache(userId) {
  * The client key share is returned once at registration and must be saved by the user.
  * Neither the server alone nor the client alone can decrypt — both are required.
  *
- * KEK = scrypt(masterSecret + clientKeyShare, salt)
+ * KEK = PBKDF2(masterSecret + clientKeyShare, salt)
  *
  * @param {string} masterSecret - Server master secret (from env)
- * @returns {{ encryptedDek: Buffer, dekSalt: Buffer, dek: Buffer, clientKeyShare: string }}
+ * @returns {Promise<{
+ *   encryptedDek: string,
+ *   dekSalt: string,
+ *   dekRaw: Uint8Array,
+ *   clientKeyShare: string
+ * }>}
  */
-export function generateDekSplitAuthority(masterSecret) {
-  const dek = randomBytes(KEY_LENGTH);
-  const dekSalt = randomBytes(16);
-  const clientKeyShare = `cvs_${randomBytes(32).toString("hex")}`;
+export async function generateDekSplitAuthority(masterSecret) {
+  const clientKeyShareBytes = crypto.getRandomValues(new Uint8Array(32));
+  const clientKeyShare = `cvs_${toBase64(clientKeyShareBytes).replace(/[+/=]/g, (c) => ({ "+": "-", "/": "_", "=": "" })[c])}`;
 
-  // Combine server + client secrets for key derivation
   const combinedSecret = masterSecret + clientKeyShare;
-  const masterKey = deriveKey(combinedSecret, dekSalt);
-  const { encrypted, iv } = encrypt(dek.toString("hex"), masterKey);
+  const dekRaw = crypto.getRandomValues(new Uint8Array(KEY_LENGTH_BYTES));
+  const dekSaltBytes = crypto.getRandomValues(
+    new Uint8Array(SALT_LENGTH_BYTES),
+  );
+  const masterKey = await deriveKey(combinedSecret, dekSaltBytes);
 
-  // Store IV + encrypted DEK together
-  const encryptedDek = Buffer.concat([iv, encrypted]);
+  const { encrypted, iv } = await encrypt(toBase64(dekRaw), masterKey);
+  const encryptedDekBytes = new Uint8Array(IV_LENGTH_BYTES + encrypted.byteLength);
+  encryptedDekBytes.set(iv, 0);
+  encryptedDekBytes.set(encrypted, IV_LENGTH_BYTES);
 
-  return { encryptedDek, dekSalt, dek, clientKeyShare };
+  return {
+    encryptedDek: toBase64(encryptedDekBytes),
+    dekSalt: toBase64(dekSaltBytes),
+    dekRaw,
+    clientKeyShare,
+  };
 }
 
 /**
  * Decrypt a stored DEK using split-authority (both server + client secrets).
  *
- * @param {Buffer} encryptedDek - IV (12 bytes) + encrypted DEK
- * @param {Buffer} dekSalt - Salt used for key derivation
+ * @param {string} encryptedDekB64 - Base64 of [IV | ciphertext+tag]
+ * @param {string} dekSaltB64 - Base64 of PBKDF2 salt
  * @param {string} masterSecret - Server master secret
  * @param {string} clientKeyShare - User's encryption secret (cvs_...)
- * @returns {Buffer} - 32-byte DEK
+ * @returns {Promise<Uint8Array>} - 32-byte raw DEK
  */
-export function decryptDekSplitAuthority(
-  encryptedDek,
-  dekSalt,
+export async function decryptDekSplitAuthority(
+  encryptedDekB64,
+  dekSaltB64,
   masterSecret,
   clientKeyShare,
 ) {
-  const iv = encryptedDek.subarray(0, 12);
-  const encrypted = encryptedDek.subarray(12);
   const combinedSecret = masterSecret + clientKeyShare;
-  const masterKey = deriveKey(combinedSecret, dekSalt);
-  const dekHex = decrypt(encrypted, iv, masterKey);
-  return Buffer.from(dekHex, "hex");
+  return decryptDek(encryptedDekB64, dekSaltB64, combinedSecret);
 }
 
 /**
- * Get or derive the DEK for a user using split-authority.
- * Falls back to legacy server-only derivation if no clientKeyShare provided.
- * Caches the result in memory.
+ * Get the AES-256-GCM CryptoKey for a user.
+ * Automatically handles legacy vs split-authority modes.
+ * No caching — Workers are stateless; derive on each request.
  *
- * @param {string} userId
- * @param {Buffer} encryptedDek - From meta DB
- * @param {Buffer} dekSalt - From meta DB
+ * @param {string} encryptedDekB64 - From Turso
+ * @param {string} dekSaltB64 - From Turso
  * @param {string} masterSecret - From environment
  * @param {string|null} clientKeyShare - User's encryption secret (null for legacy)
- * @param {string} encryptionMode - 'legacy' or 'split-authority'
- * @returns {Buffer} - 32-byte DEK
+ * @param {"legacy"|"split-authority"} encryptionMode
+ * @returns {Promise<CryptoKey>}
  */
-export function getUserDekAuto(
-  userId,
-  encryptedDek,
-  dekSalt,
+export async function getUserDekAuto(
+  encryptedDekB64,
+  dekSaltB64,
   masterSecret,
   clientKeyShare,
   encryptionMode,
 ) {
-  // Cache key includes mode to prevent cross-contamination during migration
-  const cacheKey = `${userId}:${encryptionMode}`;
-  if (dekCache.has(cacheKey)) return dekCache.get(cacheKey);
-
-  let dek;
+  let dekRaw;
   if (encryptionMode === "split-authority") {
     if (!clientKeyShare) {
       throw new Error(
         "Split-authority encryption requires X-Vault-Secret header. Include your encryption secret.",
       );
     }
-    dek = decryptDekSplitAuthority(
-      encryptedDek,
-      dekSalt,
+    dekRaw = await decryptDekSplitAuthority(
+      encryptedDekB64,
+      dekSaltB64,
       masterSecret,
       clientKeyShare,
     );
   } else {
-    dek = decryptDek(encryptedDek, dekSalt, masterSecret);
+    dekRaw = await decryptDek(encryptedDekB64, dekSaltB64, masterSecret);
   }
 
-  dekCache.set(cacheKey, dek);
-  return dek;
+  return importAesKey(dekRaw);
 }

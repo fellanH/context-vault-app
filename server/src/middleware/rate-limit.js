@@ -1,21 +1,19 @@
 /**
  * rate-limit.js — Tier-based rate limiting and usage metering.
  *
- * Free tier: 100 searches/day, 500 entries max.
- * Pro tier: Unlimited.
+ * Free tier: 200 requests/day, 50 MB storage.
+ * Pro / Team tier: Unlimited requests.
  *
- * Note: We cannot read the request body here (it would consume it before
- * the MCP transport can read it). Instead, we do a simple per-request
- * rate limit based on the endpoint, and log usage after the response.
+ * Uses Turso (libSQL) via c.get("ctx").db instead of better-sqlite3.
+ * All DB calls are async.
  */
 
-import { prepareMetaStatements, getMetaDb } from "../auth/meta-db.js";
 import { getTierLimits } from "../billing/stripe.js";
 import { checkAndSendUsageAlerts } from "../email/usage-alerts.js";
 
 /**
  * Hono middleware that enforces tier-based rate limits.
- * Must run after bearerAuth() so c.get("user") is available.
+ * Must run after auth middleware so c.get("user") is available.
  */
 export function rateLimit() {
   return async (c, next) => {
@@ -23,22 +21,26 @@ export function rateLimit() {
     if (!user) return c.json({ error: "Unauthorized" }, 401);
 
     const limits = getTierLimits(user.tier);
-    const stmts = prepareMetaStatements(getMetaDb());
+    const db = c.get("ctx")?.db;
+    if (!db) return c.json({ error: "Service unavailable" }, 503);
 
     // Check daily request limit for free tier
     if (limits.requestsPerDay !== Infinity) {
-      const count = stmts.countUsageToday.get(user.userId, "mcp_request");
-      const remaining = Math.max(0, limits.requestsPerDay - count.c);
+      const countResult = await db.execute({
+        sql: `SELECT COUNT(*) as c FROM usage_log WHERE user_id = ? AND operation = 'mcp_request' AND timestamp >= date('now')`,
+        args: [user.userId],
+      });
+      const count = Number(countResult.rows[0]?.c ?? 0);
+      const remaining = Math.max(0, limits.requestsPerDay - count);
 
-      if (count.c >= limits.requestsPerDay) {
-        const resetDate = new Date();
-        resetDate.setUTCHours(24, 0, 0, 0);
+      const resetDate = new Date();
+      resetDate.setUTCHours(24, 0, 0, 0);
+      const resetTs = String(Math.floor(resetDate.getTime() / 1000));
+
+      if (count >= limits.requestsPerDay) {
         c.header("X-RateLimit-Limit", String(limits.requestsPerDay));
         c.header("X-RateLimit-Remaining", "0");
-        c.header(
-          "X-RateLimit-Reset",
-          String(Math.floor(resetDate.getTime() / 1000)),
-        );
+        c.header("X-RateLimit-Reset", resetTs);
         return c.json(
           {
             error: `Daily request limit reached (${limits.requestsPerDay}/day). Upgrade to Pro for unlimited usage.`,
@@ -49,19 +51,17 @@ export function rateLimit() {
       }
 
       // Set rate limit headers for successful requests
-      const resetDate = new Date();
-      resetDate.setUTCHours(24, 0, 0, 0);
       c.header("X-RateLimit-Limit", String(limits.requestsPerDay));
       c.header("X-RateLimit-Remaining", String(remaining - 1));
-      c.header(
-        "X-RateLimit-Reset",
-        String(Math.floor(resetDate.getTime() / 1000)),
-      );
+      c.header("X-RateLimit-Reset", resetTs);
     }
 
     // Log usage (before processing — count the attempt)
     try {
-      stmts.logUsage.run(user.userId, "mcp_request");
+      await db.execute({
+        sql: `INSERT INTO usage_log (user_id, operation, status) VALUES (?, 'mcp_request', 'success')`,
+        args: [user.userId],
+      });
     } catch {}
 
     await next();
@@ -69,29 +69,31 @@ export function rateLimit() {
     // Fire-and-forget: check thresholds and send alert emails if needed.
     // Runs after the response is sent — no latency impact on the API caller.
     if (limits.requestsPerDay !== Infinity && user.email) {
-      Promise.resolve().then(async () => {
+      // Use ctx from closure — do not await, intentionally fire-and-forget
+      (async () => {
         try {
-          const db = getMetaDb();
-          const requestsToday = db
-            .prepare(
-              `SELECT COUNT(*) as c FROM usage_log WHERE user_id = ? AND operation = 'mcp_request' AND timestamp >= date('now')`,
-            )
-            .get(user.userId).c;
-
-          // Storage usage requires the user's vault DB — skip if unavailable.
-          // The storage alert will be triggered on the next request that has
-          // access to userCtx (vault-api routes call checkLimits directly).
-          await checkAndSendUsageAlerts({
-            userId: user.userId,
-            email: user.email,
-            tier: user.tier,
-            requestsToday,
-            storageMbUsed: 0, // storage checked separately in vault-api routes
+          const todayResult = await db.execute({
+            sql: `SELECT COUNT(*) as c FROM usage_log WHERE user_id = ? AND operation = 'mcp_request' AND timestamp >= date('now')`,
+            args: [user.userId],
           });
+          const requestsToday = Number(todayResult.rows[0]?.c ?? 0);
+
+          const env = c.env;
+          await checkAndSendUsageAlerts(
+            {
+              userId: user.userId,
+              email: user.email,
+              tier: user.tier,
+              requestsToday,
+              storageMbUsed: 0, // storage checked separately in vault-api routes
+            },
+            db,
+            env,
+          );
         } catch {
           // Never let alert errors surface to the caller
         }
-      });
+      })();
     }
   };
 }

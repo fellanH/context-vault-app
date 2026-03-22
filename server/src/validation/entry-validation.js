@@ -2,30 +2,19 @@
  * entry-validation.js — Shared validation helpers for vault entries.
  *
  * Used by both the management routes (import) and the REST API routes.
- * Validation constants are canonical in @context-vault/core/constants.
+ * Constants are inlined here (no @context-vault/core dependency).
  */
 
-import {
-  MAX_BODY_LENGTH,
-  MAX_TITLE_LENGTH,
-  MAX_KIND_LENGTH,
-  MAX_TAG_LENGTH,
-  MAX_TAGS_COUNT,
-  MAX_META_LENGTH,
-  MAX_SOURCE_LENGTH,
-  MAX_IDENTITY_KEY_LENGTH,
-} from "@context-vault/core/constants";
+// ─── Validation constants ─────────────────────────────────────────────────────
 
-export {
-  MAX_BODY_LENGTH,
-  MAX_TITLE_LENGTH,
-  MAX_KIND_LENGTH,
-  MAX_TAG_LENGTH,
-  MAX_TAGS_COUNT,
-  MAX_META_LENGTH,
-  MAX_SOURCE_LENGTH,
-  MAX_IDENTITY_KEY_LENGTH,
-};
+export const MAX_BODY_LENGTH = 102400; // 100 KB
+export const MAX_TITLE_LENGTH = 500;
+export const MAX_KIND_LENGTH = 64;
+export const MAX_TAG_LENGTH = 100;
+export const MAX_TAGS_COUNT = 20;
+export const MAX_META_LENGTH = 10240; // 10 KB
+export const MAX_SOURCE_LENGTH = 200;
+export const MAX_IDENTITY_KEY_LENGTH = 200;
 
 export const KIND_PATTERN = /^[a-z0-9-]+$/;
 

@@ -1,38 +1,34 @@
 /**
- * stripe.js — Stripe billing integration.
+ * stripe.js -- Stripe billing integration for Cloudflare Workers.
  *
- * Handles:
- *   - Checkout session creation for Pro/Pro Annual/Team upgrade
- *   - Webhook processing for subscription events
- *   - Tier enforcement based on subscription status
+ * All functions accept an `env` parameter for Workers bindings instead of
+ * reading from process.env. The Stripe SDK is loaded dynamically.
  *
- * Requires environment variables:
- *   STRIPE_SECRET_KEY        — Stripe API secret key
- *   STRIPE_WEBHOOK_SECRET    — Webhook endpoint signing secret
- *   STRIPE_PRICE_PRO         — Price ID for Pro Monthly ($6/mo)
- *   STRIPE_PRICE_PRO_ANNUAL  — Price ID for Pro Annual ($48/yr)
- *   STRIPE_PRICE_TEAM        — Price ID for Team Monthly ($18/mo, up to 5 seats)
- *   STRIPE_PRICE_TEAM_SEAT   — Price ID for Team per-seat ($5/mo per seat beyond 5)
- *
- * In development, these can be test mode keys.
- * The Stripe SDK is loaded dynamically to avoid requiring it for local mode.
+ * Required env vars (set via wrangler secret):
+ *   STRIPE_SECRET_KEY, STRIPE_WEBHOOK_SECRET, STRIPE_PRICE_PRO,
+ *   STRIPE_PRICE_PRO_ANNUAL, STRIPE_PRICE_TEAM
  */
 
 let stripe = null;
+let stripeKey = null;
 
 /**
- * Initialize the Stripe client.
- * @returns {import("stripe").default | null}
+ * Get or create the Stripe client.
+ * @param {object} env - Workers env bindings
+ * @returns {Promise<import("stripe").default | null>}
  */
-export async function getStripe() {
-  if (stripe) return stripe;
-  const key = process.env.STRIPE_SECRET_KEY;
+export async function getStripe(env) {
+  const key = env.STRIPE_SECRET_KEY;
   if (!key) return null;
+
+  // Re-create if key changed (shouldn't happen, but defensive)
+  if (stripe && stripeKey === key) return stripe;
 
   try {
     const Stripe =
       globalThis._stripe_constructor || (await import("stripe")).default;
     stripe = new Stripe(key);
+    stripeKey = key;
     return stripe;
   } catch {
     return null;
@@ -41,47 +37,37 @@ export async function getStripe() {
 
 /**
  * Resolve the Stripe price ID for a given plan name.
- *
+ * @param {object} env
  * @param {"pro_monthly"|"pro_annual"|"team"} plan
- * @returns {string | null}
  */
-function getPriceId(plan) {
+function getPriceId(env, plan) {
   switch (plan) {
     case "pro_annual":
-      return process.env.STRIPE_PRICE_PRO_ANNUAL || null;
+      return env.STRIPE_PRICE_PRO_ANNUAL || null;
     case "team":
-      return process.env.STRIPE_PRICE_TEAM || null;
+      return env.STRIPE_PRICE_TEAM || null;
     case "pro_monthly":
     default:
-      return process.env.STRIPE_PRICE_PRO || null;
+      return env.STRIPE_PRICE_PRO || null;
   }
 }
 
 /**
- * Create a Stripe Checkout session for upgrading to Pro or Team.
- *
+ * Create a Stripe Checkout session.
+ * @param {object} env - Workers env bindings
  * @param {object} opts
- * @param {string} opts.userId - Internal user ID
- * @param {string} opts.email - User email
- * @param {string} [opts.customerId] - Stripe customer ID (if exists)
- * @param {string} [opts.successUrl] - Redirect URL after success
- * @param {string} [opts.cancelUrl] - Redirect URL after cancel
- * @param {"pro_monthly"|"pro_annual"|"team"} [opts.plan] - Plan to subscribe to (default: pro_monthly)
- * @returns {Promise<{ url: string, sessionId: string } | null>}
  */
-export async function createCheckoutSession({
-  userId,
-  email,
-  customerId,
-  successUrl,
-  cancelUrl,
-  plan = "pro_monthly",
-}) {
-  const s = await getStripe();
+export async function createCheckoutSession(
+  env,
+  { userId, email, customerId, successUrl, cancelUrl, plan = "pro_monthly" },
+) {
+  const s = await getStripe(env);
   if (!s) return null;
 
-  const priceId = getPriceId(plan);
+  const priceId = getPriceId(env, plan);
   if (!priceId) return null;
+
+  const appUrl = env.APP_URL || "https://app.context-vault.com";
 
   const params = {
     mode: "subscription",
@@ -89,12 +75,8 @@ export async function createCheckoutSession({
     allow_promotion_codes: true,
     success_url:
       successUrl ||
-      process.env.STRIPE_SUCCESS_URL ||
-      `https://${process.env.FLY_APP_NAME || "localhost:3000"}/billing/success?session_id={CHECKOUT_SESSION_ID}`,
-    cancel_url:
-      cancelUrl ||
-      process.env.STRIPE_CANCEL_URL ||
-      `https://${process.env.FLY_APP_NAME || "localhost:3000"}/billing/cancel`,
+      `${appUrl}/billing/success?session_id={CHECKOUT_SESSION_ID}`,
+    cancel_url: cancelUrl || `${appUrl}/billing/cancel`,
     metadata: { userId },
   };
 
@@ -109,18 +91,16 @@ export async function createCheckoutSession({
 }
 
 /**
- * Process a Stripe webhook event.
- * Returns the event type and relevant data for the caller to act on.
- *
+ * Verify and parse a Stripe webhook event.
+ * @param {object} env - Workers env bindings
  * @param {string} body - Raw request body
  * @param {string} signature - Stripe-Signature header
- * @returns {{ type: string, data: object } | null}
  */
-export async function verifyWebhookEvent(body, signature) {
-  const s = await getStripe();
+export async function verifyWebhookEvent(env, body, signature) {
+  const s = await getStripe(env);
   if (!s) return null;
 
-  const secret = process.env.STRIPE_WEBHOOK_SECRET;
+  const secret = env.STRIPE_WEBHOOK_SECRET;
   if (!secret) return null;
 
   try {
@@ -133,14 +113,11 @@ export async function verifyWebhookEvent(body, signature) {
 
 /**
  * Create a Stripe Customer Portal session.
- *
+ * @param {object} env - Workers env bindings
  * @param {object} opts
- * @param {string} opts.customerId - Stripe customer ID
- * @param {string} opts.returnUrl - URL to redirect back to after portal
- * @returns {Promise<{ url: string } | null>}
  */
-export async function createPortalSession({ customerId, returnUrl }) {
-  const s = await getStripe();
+export async function createPortalSession(env, { customerId, returnUrl }) {
+  const s = await getStripe(env);
   if (!s) return null;
 
   const session = await s.billingPortal.sessions.create({
@@ -150,7 +127,7 @@ export async function createPortalSession({ customerId, returnUrl }) {
   return { url: session.url };
 }
 
-// ─── Tier Mapping ───────────────────────────────────────────────────────────
+// ─── Tier Mapping ────────────────────────────────────────────────────────────
 
 const TIER_LIMITS = {
   free: {

@@ -19,6 +19,7 @@ import { requestLogger } from "./middleware/logger.js";
 import { createWorkerCtx } from "./storage/workers-ctx.js";
 import { createManagementRoutes } from "./server/management.js";
 import { createVaultApiRoutes } from "./routes/vault-api.js";
+import { createTeamVaultApiRoutes } from "./routes/team-vault-api.js";
 
 const VERSION = "0.2.0";
 
@@ -132,6 +133,10 @@ app.route("/", createManagementRoutes());
 // ─── Vault REST API ──────────────────────────────────────────────────────────
 
 app.route("/", createVaultApiRoutes());
+
+// ─── Team Vault REST API ────────────────────────────────────────────────────
+
+app.route("/", createTeamVaultApiRoutes());
 
 // ─── Root redirect ───────────────────────────────────────────────────────────
 

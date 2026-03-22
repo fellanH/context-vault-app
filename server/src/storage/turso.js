@@ -59,6 +59,7 @@ export const VAULT_SCHEMA = `
     source_files    TEXT,
     hit_count       INTEGER DEFAULT 0,
     last_accessed_at TEXT,
+    team_id         TEXT,
     body_encrypted  BLOB,
     title_encrypted BLOB,
     meta_encrypted  BLOB,
@@ -68,6 +69,7 @@ export const VAULT_SCHEMA = `
   );
 
   CREATE INDEX IF NOT EXISTS idx_vault_user ON vault(user_id);
+  CREATE INDEX IF NOT EXISTS idx_vault_team ON vault(team_id) WHERE team_id IS NOT NULL;
   CREATE INDEX IF NOT EXISTS idx_vault_kind ON vault(kind);
   CREATE INDEX IF NOT EXISTS idx_vault_category ON vault(category);
   CREATE INDEX IF NOT EXISTS idx_vault_category_created ON vault(category, created_at DESC);
@@ -121,6 +123,23 @@ export function createTursoClient(url, authToken) {
 export async function initSchemas(client) {
   await client.executeMultiple(META_SCHEMA);
   await client.executeMultiple(VAULT_SCHEMA);
+
+  // Migrations: add columns that CREATE TABLE IF NOT EXISTS won't add
+  // to existing tables. Each is idempotent (catches "duplicate column" errors).
+  const migrations = [
+    `ALTER TABLE vault ADD COLUMN team_id TEXT`,
+    `CREATE INDEX IF NOT EXISTS idx_vault_team ON vault(team_id) WHERE team_id IS NOT NULL`,
+  ];
+  for (const sql of migrations) {
+    try {
+      await client.execute(sql);
+    } catch (e) {
+      // Ignore "duplicate column" or "already exists" errors
+      if (!e.message?.includes("duplicate column") && !e.message?.includes("already exists")) {
+        console.warn(`[turso] Migration warning: ${e.message}`);
+      }
+    }
+  }
 }
 
 // ─── Query Helpers ───────────────────────────────────────────────────────────

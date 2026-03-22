@@ -47,7 +47,7 @@ const FREE_TIER_MAX_ENTRIES = 1000;
  * @param {string} kind
  * @returns {string}
  */
-function normalizeKind(kind) {
+export function normalizeKind(kind) {
   return kind.toLowerCase().replace(/[^a-z0-9_-]/g, "");
 }
 
@@ -56,7 +56,7 @@ function normalizeKind(kind) {
  * @param {string} kind
  * @returns {"event"|"entity"|"knowledge"}
  */
-function categoryFor(kind) {
+export function categoryFor(kind) {
   if (kind === "events" || kind === "session") return "event";
   if (
     kind === "contact" ||
@@ -91,7 +91,7 @@ function isOverEntryLimit(tier, currentCount) {
  * @param {object} row
  * @returns {object}
  */
-function formatEntry(row) {
+export function formatEntry(row) {
   return {
     id: row.id,
     kind: row.kind,
@@ -124,7 +124,7 @@ function formatEntry(row) {
  * @param {object} data - Entry fields
  * @returns {Promise<string>} The new entry's ID
  */
-async function insertEntry(db, ai, data) {
+export async function insertEntry(db, ai, data) {
   const id = ulid();
   const kind = normalizeKind(data.kind);
   const category = categoryFor(kind);
@@ -137,12 +137,13 @@ async function insertEntry(db, ai, data) {
   await execute(
     db,
     `INSERT INTO vault
-       (id, user_id, kind, category, title, body, meta, tags, source,
+       (id, user_id, team_id, kind, category, title, body, meta, tags, source,
         identity_key, expires_at, created_at, updated_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     [
       id,
       data.userId,
+      data.teamId || null,
       kind,
       category,
       data.title || null,

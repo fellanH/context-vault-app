@@ -1,5 +1,5 @@
 import { useState } from "react";
-import type { Entry } from "../lib/types";
+import type { Entry, EntryVisibility } from "../lib/types";
 import { useEntries } from "../lib/hooks";
 import { formatRelativeTime } from "../lib/format";
 import { Badge } from "../components/ui/badge";
@@ -38,6 +38,9 @@ export function Knowledge() {
   const [kindFilter, setKindFilter] = useState<string>("all");
   const [showNewEntry, setShowNewEntry] = useState(false);
   const [page, setPage] = useState(0);
+  const [visibilityFilter, setVisibilityFilter] = useState<
+    "all" | EntryVisibility
+  >("all");
   const [sortByRecalls, setSortByRecalls] = useState<"asc" | "desc" | null>(
     null,
   );
@@ -53,15 +56,24 @@ export function Knowledge() {
   const total = data?.total ?? 0;
   const totalPages = Math.ceil(total / PAGE_SIZE);
 
-  // Client-side text filter on loaded page
+  // Client-side text + visibility filter on loaded page
   const filteredEntries = (() => {
-    let result = searchQuery
-      ? entries.filter(
-          (entry) =>
-            entry.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
-            entry.body.toLowerCase().includes(searchQuery.toLowerCase()),
-        )
-      : [...entries];
+    let result = [...entries];
+
+    if (searchQuery) {
+      const q = searchQuery.toLowerCase();
+      result = result.filter(
+        (entry) =>
+          entry.title.toLowerCase().includes(q) ||
+          entry.body.toLowerCase().includes(q),
+      );
+    }
+
+    if (visibilityFilter !== "all") {
+      result = result.filter(
+        (entry) => entry.visibility === visibilityFilter,
+      );
+    }
 
     if (sortByRecalls) {
       result.sort((a, b) => {
@@ -125,6 +137,24 @@ export function Knowledge() {
                 <SelectItem value="decision">Decision</SelectItem>
                 <SelectItem value="pattern">Pattern</SelectItem>
                 <SelectItem value="reference">Reference</SelectItem>
+              </SelectContent>
+            </Select>
+
+            <Select
+              value={visibilityFilter}
+              onValueChange={(v) => {
+                setVisibilityFilter(v as "all" | EntryVisibility);
+                setPage(0);
+              }}
+            >
+              <SelectTrigger className="w-40">
+                <Eye className="size-4 mr-2" />
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All Visibility</SelectItem>
+                <SelectItem value="private">Private</SelectItem>
+                <SelectItem value="team">Team</SelectItem>
               </SelectContent>
             </Select>
           </div>

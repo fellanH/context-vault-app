@@ -232,6 +232,30 @@ export function EntryInspector({
     toast.success("JSON copied to clipboard");
   };
 
+  const handleShareToTeam = (teamId: string, teamName: string) => {
+    publishEntry.mutate(
+      { entryId: liveEntry.id, teamId },
+      {
+        onSuccess: () => {
+          setLiveEntry({ ...liveEntry, visibility: "team", teamId, teamName });
+          qc.invalidateQueries({ queryKey: ["entries"] });
+          toast.success(`Shared to ${teamName}`);
+        },
+        onError: (err) => {
+          const msg = err instanceof Error ? err.message : "Failed to share";
+          toast.error("Share failed", { description: msg });
+        },
+      },
+    );
+  };
+
+  const canShare =
+    !isEditing &&
+    liveEntry.category === "knowledge" &&
+    liveEntry.visibility === "private" &&
+    teams &&
+    teams.length > 0;
+
   const handleDelete = () => {
     if (requiresConfirmation && deleteConfirmText !== confirmSlug) {
       toast.error(`Type "${confirmSlug}" to confirm deletion`);
@@ -366,6 +390,37 @@ export function EntryInspector({
                       <Copy className="size-4 mr-2" />
                       Copy JSON
                     </Button>
+                    {canShare && (
+                      <DropdownMenu>
+                        <DropdownMenuTrigger asChild>
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            disabled={publishEntry.isPending}
+                          >
+                            {publishEntry.isPending ? (
+                              <Loader2 className="size-4 mr-2 animate-spin" />
+                            ) : (
+                              <Share2 className="size-4 mr-2" />
+                            )}
+                            Share to team
+                          </Button>
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent align="end">
+                          {teams!.map((team) => (
+                            <DropdownMenuItem
+                              key={team.id}
+                              onClick={() =>
+                                handleShareToTeam(team.id, team.name)
+                              }
+                            >
+                              <Users className="size-4 mr-2" />
+                              {team.name}
+                            </DropdownMenuItem>
+                          ))}
+                        </DropdownMenuContent>
+                      </DropdownMenu>
+                    )}
                   </>
                 )}
               </div>

@@ -91,7 +91,7 @@ export function getMigrationSteps({
       label: "Switch to hosted MCP",
       completed: hasMcpActivity,
       description:
-        "Update your tools to use the hosted MCP — works from any machine",
+        "Update your tools to use the hosted MCP. Works from any machine.",
       action: "copy-connect-command",
       actionLabel: "Copy command",
     },

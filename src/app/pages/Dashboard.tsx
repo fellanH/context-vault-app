@@ -199,10 +199,12 @@ export function Dashboard() {
   return (
     <div className="p-6 space-y-6 max-w-5xl mx-auto">
       <div>
-        <h1 className="text-2xl font-semibold mb-1">Dashboard</h1>
+        <h1 className="text-2xl font-semibold mb-1">
+          {user?.name ? `Welcome, ${user.name.split(" ")[0]}` : "Dashboard"}
+        </h1>
         <p className="text-sm text-muted-foreground">
           {allComplete
-            ? "Welcome back. Here's your vault at a glance."
+            ? "Here's your vault at a glance."
             : "Get started by completing the steps below."}
         </p>
       </div>
@@ -217,7 +219,7 @@ export function Dashboard() {
                 What&apos;s new in v{LATEST_VERSION}
               </span>
               <span className="text-sm text-muted-foreground ml-2">
-                &mdash; {changelogData[0]?.title}
+                : {changelogData[0]?.title}
               </span>
             </div>
           </div>
@@ -233,6 +235,7 @@ export function Dashboard() {
                 dismissWhatsNew();
                 setShowWhatsNew(false);
               }}
+              aria-label="Dismiss what's new"
             >
               <X className="size-3.5" />
             </Button>
@@ -258,6 +261,7 @@ export function Dashboard() {
                 size="icon"
                 className="size-7"
                 onClick={handleDismiss}
+                aria-label="Dismiss getting started"
               >
                 <X className="size-3.5" />
               </Button>
@@ -276,7 +280,7 @@ export function Dashboard() {
                     className="text-left rounded-lg border border-border p-4 space-y-1.5 hover:border-primary/40 hover:bg-muted/40 transition-colors"
                   >
                     <p className="text-sm font-medium">
-                      I&apos;m new — set me up from scratch
+                      I&apos;m new, set me up from scratch
                     </p>
                     <p className="text-xs text-muted-foreground">
                       Start fresh. We&apos;ll walk you through connecting your
@@ -483,7 +487,7 @@ export function Dashboard() {
                     <details className="group">
                       <summary className="text-sm cursor-pointer list-none flex items-center gap-1.5 text-muted-foreground hover:text-foreground transition-colors">
                         <ChevronDown className="size-3.5 transition-transform group-open:rotate-180" />
-                        Or configure manually — Hosted MCP (JSON)
+                        Or configure manually: Hosted MCP (JSON)
                       </summary>
                       <pre className="mt-2 bg-muted p-3 rounded-md text-[11px] font-mono overflow-x-auto">
                         {MCP_JSON_SNIPPET}
@@ -641,7 +645,14 @@ export function Dashboard() {
       {/* Recent Activity */}
       <Card>
         <CardHeader className="pb-3">
-          <CardTitle className="text-base">Recent Activity</CardTitle>
+          <div className="flex items-center justify-between">
+            <CardTitle className="text-base">Recent Activity</CardTitle>
+            {entries.length > 0 && (
+              <Button variant="ghost" size="sm" asChild className="text-xs h-7">
+                <Link to="/vault/knowledge">View all</Link>
+              </Button>
+            )}
+          </div>
         </CardHeader>
         <CardContent>
           {entriesLoading ? (

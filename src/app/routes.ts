@@ -15,6 +15,7 @@ import { DataManagement } from "./pages/settings/DataManagement";
 import { ImportPage } from "./pages/Import";
 import { Account } from "./pages/settings/Account";
 import { Sync } from "./pages/settings/Sync";
+import { AgentRules } from "./pages/settings/AgentRules";
 import { TeamCreate } from "./pages/team/Create";
 import { TeamDashboard } from "./pages/team/Dashboard";
 import { TeamInvite } from "./pages/team/Invite";
@@ -44,6 +45,7 @@ export const router = createBrowserRouter([
       { path: "settings/data", Component: DataManagement },
       { path: "settings/account", Component: Account },
       { path: "settings/sync", Component: Sync },
+      { path: "settings/agent-rules", Component: AgentRules },
     ],
   },
   { path: "*", Component: NotFound },

@@ -2,7 +2,7 @@
  * auth.js -- better-auth instance for Cloudflare Workers.
  *
  * Uses Kysely with @libsql/kysely-libsql dialect to connect to Turso.
- * Configures email/password + GitHub social login.
+ * Configures email/password + GitHub + Google social login.
  * Organization and API key plugins enabled.
  *
  * The auth instance is created per-request since Workers are stateless.
@@ -45,6 +45,12 @@ export async function createAuth(env) {
         github: {
           clientId: env.GITHUB_CLIENT_ID,
           clientSecret: env.GITHUB_CLIENT_SECRET,
+        },
+      }),
+      ...(env.GOOGLE_CLIENT_ID && {
+        google: {
+          clientId: env.GOOGLE_CLIENT_ID,
+          clientSecret: env.GOOGLE_CLIENT_SECRET,
         },
       }),
     },

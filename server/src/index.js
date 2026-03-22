@@ -2,7 +2,7 @@
  * @context-vault/hosted -- Cloudflare Workers entry point.
  *
  * Hono HTTP server with:
- *   - better-auth at /api/auth/* (email/password + GitHub + orgs + API keys)
+ *   - better-auth at /api/auth/* (email/password + GitHub + Google + orgs + API keys)
  *   - Vault REST API at /api/vault/* (CRUD + search via Turso)
  *   - Management API at /api/* (billing, teams, account)
  *   - Workers AI for embeddings

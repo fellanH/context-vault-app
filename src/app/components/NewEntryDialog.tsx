@@ -184,6 +184,7 @@ export function NewEntryDialog({
                     <button
                       onClick={() => handleRemoveTag(tag)}
                       className="ml-1 hover:text-destructive"
+                      aria-label={`Remove tag ${tag}`}
                     >
                       <X className="size-3" />
                     </button>

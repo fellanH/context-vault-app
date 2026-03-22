@@ -126,7 +126,7 @@ export function DataManagement() {
   return (
     <div className="p-6 max-w-3xl mx-auto space-y-6">
       <div>
-        <h1 className="text-2xl font-bold">Data</h1>
+        <h1 className="text-2xl font-semibold">Data</h1>
         <p className="text-sm text-muted-foreground mt-1">
           Import, export, and manage your vault data.
         </p>

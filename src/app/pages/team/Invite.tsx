@@ -8,40 +8,36 @@ import {
 } from "../../components/ui/card";
 import { Button } from "../../components/ui/button";
 import { Loader2, CheckCircle, XCircle } from "lucide-react";
-import { useJoinTeam } from "../../lib/hooks";
+import { useAcceptInvitation } from "../../lib/hooks";
 
 export function TeamInvite() {
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
-  const joinTeam = useJoinTeam();
+  const acceptInvitation = useAcceptInvitation();
 
-  const token = searchParams.get("token") || "";
-  const teamId = searchParams.get("team") || "";
-  const isMissingParams = !token || !teamId;
+  const invitationId = searchParams.get("id") || "";
+  const isMissingParams = !invitationId;
   const [status, setStatus] = useState<
     "idle" | "joining" | "success" | "error"
   >(isMissingParams ? "error" : "idle");
   const [errorMsg, setErrorMsg] = useState(
-    isMissingParams ? "Invalid invite link. Missing token or team ID." : "",
+    isMissingParams ? "Invalid invite link. Missing invitation ID." : "",
   );
 
   const handleJoin = () => {
-    if (!token || !teamId) return;
+    if (!invitationId) return;
     setStatus("joining");
 
-    joinTeam.mutate(
-      { teamId, token },
-      {
-        onSuccess: (data) => {
-          setStatus("success");
-          setTimeout(() => navigate(`/team/${data.teamId}`), 1500);
-        },
-        onError: (err) => {
-          setStatus("error");
-          setErrorMsg(err.message || "Failed to join team");
-        },
+    acceptInvitation.mutate(invitationId, {
+      onSuccess: () => {
+        setStatus("success");
+        setTimeout(() => navigate("/"), 1500);
       },
-    );
+      onError: (err) => {
+        setStatus("error");
+        setErrorMsg(err.message || "Failed to join team");
+      },
+    });
   };
 
   return (
@@ -74,7 +70,7 @@ export function TeamInvite() {
               <CheckCircle className="size-8 text-emerald-500" />
               <p className="text-sm font-medium">You've joined the team!</p>
               <p className="text-xs text-muted-foreground">
-                Redirecting to team dashboard...
+                Redirecting to dashboard...
               </p>
             </div>
           )}

@@ -22,7 +22,10 @@ export default defineConfig({
 
   server: {
     proxy: {
-      "/api": "http://localhost:3000",
+      "/api": {
+        target: "https://api.context-vault.com",
+        changeOrigin: true,
+      },
     },
   },
 });

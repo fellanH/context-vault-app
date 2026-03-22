@@ -1,13 +1,10 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { api } from "./api";
+import { authClient } from "./auth-client";
 import {
   transformEntry,
   transformSearchResult,
-  transformApiKey,
   transformUsage,
-  transformTeam,
-  transformTeamMember,
-  transformTeamInvite,
 } from "./types";
 import type {
   Entry,
@@ -16,13 +13,8 @@ import type {
   UsageResponse,
   ApiEntry,
   ApiSearchResult,
-  ApiKeyListItem,
   ApiUsageResponse,
   ApiVaultStatusResponse,
-  ApiTeamListResponse,
-  ApiTeamDetailResponse,
-  ApiTeamUsageResponse,
-  ApiKeyActivityResponse,
   Category,
 } from "./types";
 
@@ -152,14 +144,26 @@ export function useSearch() {
   });
 }
 
-// ─── API Keys ────────────────────────────────────────────────────────────────
+// ─── API Keys (better-auth apiKey plugin) ───────────────────────────────────
 
 export function useApiKeys() {
   return useQuery({
     queryKey: ["apiKeys"],
-    queryFn: async () => {
-      const raw = await api.get<{ keys: ApiKeyListItem[] }>("/keys");
-      return raw.keys.map(transformApiKey);
+    queryFn: async (): Promise<ApiKey[]> => {
+      const { data, error } = await authClient.apiKey.list();
+      if (error) throw new Error(error.message || "Failed to list API keys");
+      const keys = data?.apiKeys ?? [];
+      return keys.map((k: Record<string, unknown>) => ({
+        id: k.id as string,
+        name: (k.name as string) || "Unnamed",
+        prefix: (k.prefix as string) || (k.id as string).slice(0, 8),
+        scopes: Array.isArray((k.metadata as Record<string, unknown>)?.scopes)
+          ? (k.metadata as Record<string, string[]>).scopes
+          : ["*"],
+        createdAt: new Date(k.createdAt as string),
+        lastUsedAt: k.lastUsedAt ? new Date(k.lastUsedAt as string) : undefined,
+        expiresAt: k.expiresAt ? new Date(k.expiresAt as string) : undefined,
+      }));
     },
   });
 }
@@ -167,7 +171,7 @@ export function useApiKeys() {
 export function useCreateApiKey() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: ({
+    mutationFn: async ({
       name,
       expires_at,
       scopes,
@@ -175,14 +179,31 @@ export function useCreateApiKey() {
       name: string;
       expires_at?: string;
       scopes?: string[];
-    }) =>
-      api.post<{
-        id: string;
-        key: string;
-        prefix: string;
-        name: string;
-        scopes: string[];
-      }>("/keys", { name, expires_at, scopes }),
+    }) => {
+      const opts: Record<string, unknown> = {
+        name,
+        metadata: { scopes: scopes || ["*"] },
+      };
+      if (expires_at) {
+        const expiresMs = new Date(expires_at).getTime() - Date.now();
+        if (expiresMs > 0) {
+          opts.expiresIn = Math.floor(expiresMs / 1000);
+        }
+      }
+      const { data, error } = await authClient.apiKey.create(
+        opts as Parameters<typeof authClient.apiKey.create>[0],
+      );
+      if (error) throw new Error(error.message || "Failed to create API key");
+      return {
+        id: (data as Record<string, unknown>).id as string,
+        key: (data as Record<string, unknown>).key as string,
+        name: (data as Record<string, unknown>).name as string,
+        prefix:
+          ((data as Record<string, unknown>).prefix as string) ||
+          ((data as Record<string, unknown>).key as string)?.slice(0, 12),
+        scopes: scopes || ["*"],
+      };
+    },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["apiKeys"] });
     },
@@ -192,29 +213,14 @@ export function useCreateApiKey() {
 export function useDeleteApiKey() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (id: string) => api.del<{ deleted: boolean }>(`/keys/${id}`),
+    mutationFn: async (id: string) => {
+      const { error } = await authClient.apiKey.delete({ keyId: id });
+      if (error) throw new Error(error.message || "Failed to delete API key");
+      return { deleted: true };
+    },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["apiKeys"] });
     },
-  });
-}
-
-export function useKeyActivity(
-  keyId: string | null,
-  { limit = 50, offset = 0 }: { limit?: number; offset?: number } = {},
-) {
-  return useQuery({
-    queryKey: ["keyActivity", keyId, { limit, offset }],
-    queryFn: () => {
-      const params = new URLSearchParams({
-        limit: String(limit),
-        offset: String(offset),
-      });
-      return api.get<ApiKeyActivityResponse>(
-        `/keys/${keyId}/activity?${params}`,
-      );
-    },
-    enabled: !!keyId,
   });
 }
 
@@ -319,14 +325,90 @@ export function useVaultStatus(opts: VaultStatusOpts = {}) {
   });
 }
 
-// ─── Teams ──────────────────────────────────────────────────────────────────
+// ─── Teams / Organizations (better-auth organization plugin) ────────────────
+
+interface OrgListItem {
+  id: string;
+  name: string;
+  slug: string;
+  createdAt: string | Date;
+  logo?: string | null;
+  metadata?: Record<string, unknown> | null;
+}
+
+interface OrgMember {
+  id: string;
+  userId: string;
+  organizationId: string;
+  role: string;
+  createdAt: string | Date;
+  user?: {
+    id: string;
+    email: string;
+    name: string | null;
+    image?: string | null;
+  };
+}
+
+interface OrgInvitation {
+  id: string;
+  organizationId: string;
+  email: string;
+  role: string;
+  status: string;
+  expiresAt: string | Date;
+  inviterId?: string;
+}
+
+export interface Team {
+  id: string;
+  name: string;
+  slug: string;
+  role: "owner" | "admin" | "member";
+  createdAt: Date;
+}
+
+export interface TeamMember {
+  id: string;
+  userId: string;
+  email: string;
+  name: string | null;
+  role: "owner" | "admin" | "member";
+  joinedAt: Date;
+}
+
+export interface TeamInvite {
+  id: string;
+  email: string;
+  role: string;
+  status: string;
+  expiresAt: Date;
+}
+
+export interface TeamDetail {
+  id: string;
+  name: string;
+  slug: string;
+  role: "owner" | "admin" | "member";
+  createdAt: Date;
+  members: TeamMember[];
+  invites: TeamInvite[];
+}
 
 export function useTeams() {
   return useQuery({
     queryKey: ["teams"],
-    queryFn: async () => {
-      const raw = await api.get<ApiTeamListResponse>("/teams");
-      return raw.teams.map(transformTeam);
+    queryFn: async (): Promise<Team[]> => {
+      const { data, error } = await authClient.organization.list();
+      if (error) throw new Error(error.message || "Failed to list organizations");
+      if (!data) return [];
+      return (data as OrgListItem[]).map((org) => ({
+        id: org.id,
+        name: org.name,
+        slug: org.slug,
+        role: "member" as const, // list doesn't include role; will be refined in detail view
+        createdAt: new Date(org.createdAt),
+      }));
     },
   });
 }
@@ -334,26 +416,54 @@ export function useTeams() {
 export function useTeam(id: string | null) {
   return useQuery({
     queryKey: ["team", id],
-    queryFn: async () => {
-      const raw = await api.get<ApiTeamDetailResponse>(`/teams/${id}`);
+    queryFn: async (): Promise<TeamDetail> => {
+      const { data, error } = await authClient.organization.getFullOrganization({
+        query: { organizationId: id! },
+      });
+      if (error) throw new Error(error.message || "Failed to get organization");
+      if (!data) throw new Error("Organization not found");
+
+      const org = data as {
+        id: string;
+        name: string;
+        slug: string;
+        createdAt: string | Date;
+        members: OrgMember[];
+        invitations: OrgInvitation[];
+      };
+
+      // Find current user's role from members
+      let myRole: "owner" | "admin" | "member" = "member";
+      const session = await authClient.getSession();
+      const myUserId = session.data?.user?.id;
+      if (myUserId) {
+        const me = org.members.find((m) => m.userId === myUserId);
+        if (me) myRole = me.role as "owner" | "admin" | "member";
+      }
+
       return {
-        id: raw.id,
-        name: raw.name,
-        tier: raw.tier,
-        role: raw.role,
-        createdAt: new Date(raw.createdAt),
-        members: raw.members.map(transformTeamMember),
-        invites: raw.invites.map(transformTeamInvite),
+        id: org.id,
+        name: org.name,
+        slug: org.slug,
+        role: myRole,
+        createdAt: new Date(org.createdAt),
+        members: org.members.map((m) => ({
+          id: m.id,
+          userId: m.userId,
+          email: m.user?.email || "",
+          name: m.user?.name || null,
+          role: m.role as "owner" | "admin" | "member",
+          joinedAt: new Date(m.createdAt),
+        })),
+        invites: (org.invitations || []).map((inv) => ({
+          id: inv.id,
+          email: inv.email,
+          role: inv.role,
+          status: inv.status,
+          expiresAt: new Date(inv.expiresAt),
+        })),
       };
     },
-    enabled: !!id,
-  });
-}
-
-export function useTeamUsage(id: string | null) {
-  return useQuery({
-    queryKey: ["teamUsage", id],
-    queryFn: () => api.get<ApiTeamUsageResponse>(`/teams/${id}/usage`),
     enabled: !!id,
   });
 }
@@ -361,8 +471,22 @@ export function useTeamUsage(id: string | null) {
 export function useCreateTeam() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (name: string) =>
-      api.post<{ id: string; name: string; role: string }>("/teams", { name }),
+    mutationFn: async (name: string) => {
+      const slug = name
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, "-")
+        .replace(/^-|-$/g, "");
+      const { data, error } = await authClient.organization.create({
+        name,
+        slug,
+      });
+      if (error) throw new Error(error.message || "Failed to create organization");
+      return {
+        id: (data as OrgListItem).id,
+        name: (data as OrgListItem).name,
+        role: "owner",
+      };
+    },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["teams"] });
     },
@@ -372,25 +496,42 @@ export function useCreateTeam() {
 export function useInviteMember() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: ({ teamId, email }: { teamId: string; email: string }) =>
-      api.post<{ id: string; token: string; email: string; expiresAt: string }>(
-        `/teams/${teamId}/invite`,
-        { email },
-      ),
+    mutationFn: async ({
+      teamId,
+      email,
+    }: {
+      teamId: string;
+      email: string;
+    }) => {
+      const { data, error } = await authClient.organization.inviteMember({
+        email,
+        role: "member",
+        organizationId: teamId,
+      });
+      if (error) throw new Error(error.message || "Failed to invite member");
+      const inv = data as OrgInvitation;
+      return {
+        id: inv.id,
+        email: inv.email,
+        expiresAt: String(inv.expiresAt),
+      };
+    },
     onSuccess: (_data, vars) => {
       qc.invalidateQueries({ queryKey: ["team", vars.teamId] });
     },
   });
 }
 
-export function useJoinTeam() {
+export function useAcceptInvitation() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: ({ teamId, token }: { teamId: string; token: string }) =>
-      api.post<{ joined: boolean; teamId: string; role: string }>(
-        `/teams/${teamId}/join`,
-        { token },
-      ),
+    mutationFn: async (invitationId: string) => {
+      const { error } = await authClient.organization.acceptInvitation({
+        invitationId,
+      });
+      if (error) throw new Error(error.message || "Failed to accept invitation");
+      return { joined: true };
+    },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["teams"] });
     },
@@ -400,13 +541,22 @@ export function useJoinTeam() {
 export function useRemoveMember() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: ({ teamId, userId }: { teamId: string; userId: string }) =>
-      api.del<{ removed: boolean; userId: string }>(
-        `/teams/${teamId}/members/${userId}`,
-      ),
+    mutationFn: async ({
+      teamId,
+      memberId,
+    }: {
+      teamId: string;
+      memberId: string;
+    }) => {
+      const { error } = await authClient.organization.removeMember({
+        memberIdOrEmail: memberId,
+        organizationId: teamId,
+      });
+      if (error) throw new Error(error.message || "Failed to remove member");
+      return { removed: true };
+    },
     onSuccess: (_data, vars) => {
       qc.invalidateQueries({ queryKey: ["team", vars.teamId] });
-      qc.invalidateQueries({ queryKey: ["teamUsage", vars.teamId] });
     },
   });
 }

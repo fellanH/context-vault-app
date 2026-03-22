@@ -22,16 +22,12 @@ import {
   Trash2,
   Loader2,
   AlertTriangle,
-  ChevronDown,
-  ChevronUp,
-  Activity,
   Info,
 } from "lucide-react";
 import {
   useApiKeys,
   useCreateApiKey,
   useDeleteApiKey,
-  useKeyActivity,
 } from "../../lib/hooks";
 import type { ApiKey } from "../../lib/types";
 import { toast } from "sonner";
@@ -85,104 +81,6 @@ function ScopeBadges({ scopes }: { scopes: string[] }) {
   );
 }
 
-function formatRelativeTime(iso: string) {
-  const ms = Date.now() - new Date(iso).getTime();
-  const secs = Math.floor(ms / 1000);
-  if (secs < 60) return "just now";
-  const mins = Math.floor(secs / 60);
-  if (mins < 60) return `${mins}m ago`;
-  const hours = Math.floor(mins / 60);
-  if (hours < 24) return `${hours}h ago`;
-  const days = Math.floor(hours / 24);
-  return `${days}d ago`;
-}
-
-function KeyActivityPanel({ keyId }: { keyId: string }) {
-  const [offset, setOffset] = useState(0);
-  const LIMIT = 50;
-  const { data, isLoading } = useKeyActivity(keyId, {
-    limit: LIMIT,
-    offset,
-  });
-
-  if (isLoading) {
-    return (
-      <div className="pt-2 pb-1 space-y-1">
-        {[1, 2, 3].map((i) => (
-          <div key={i} className="h-6 bg-muted rounded animate-pulse" />
-        ))}
-      </div>
-    );
-  }
-
-  if (!data || data.logs.length === 0) {
-    return (
-      <p className="text-xs text-muted-foreground py-2">
-        No requests logged yet. Activity appears once this key is used.
-      </p>
-    );
-  }
-
-  const hasMore = offset + data.logs.length < data.total;
-  const hasPrev = offset > 0;
-
-  return (
-    <div className="pt-2 space-y-0.5">
-      <div className="grid grid-cols-[1fr_auto_auto] gap-x-3 text-[10px] font-medium text-muted-foreground uppercase tracking-wide px-1 pb-1">
-        <span>Operation</span>
-        <span className="text-right">Time</span>
-        <span className="text-right">Status</span>
-      </div>
-      {data.logs.map((log, i) => (
-        <div
-          key={i}
-          className="grid grid-cols-[1fr_auto_auto] gap-x-3 items-center py-0.5 px-1 rounded text-xs hover:bg-muted/50"
-        >
-          <span className="font-mono truncate">{log.operation}</span>
-          <span className="text-muted-foreground whitespace-nowrap">
-            {formatRelativeTime(log.timestamp)}
-          </span>
-          <Badge
-            variant={log.status === "success" ? "secondary" : "destructive"}
-            className="text-[9px] h-4 px-1"
-          >
-            {log.status}
-          </Badge>
-        </div>
-      ))}
-      {(hasMore || hasPrev) && (
-        <div className="flex items-center justify-between pt-1">
-          <span className="text-[10px] text-muted-foreground">
-            {offset + 1}–{offset + data.logs.length} of {data.total}
-          </span>
-          <div className="flex gap-1">
-            {hasPrev && (
-              <Button
-                variant="ghost"
-                size="sm"
-                className="h-6 text-xs px-2"
-                onClick={() => setOffset(Math.max(0, offset - LIMIT))}
-              >
-                Prev
-              </Button>
-            )}
-            {hasMore && (
-              <Button
-                variant="ghost"
-                size="sm"
-                className="h-6 text-xs px-2"
-                onClick={() => setOffset(offset + LIMIT)}
-              >
-                Next
-              </Button>
-            )}
-          </div>
-        </div>
-      )}
-    </div>
-  );
-}
-
 function KeyRow({
   apiKey,
   now,
@@ -194,8 +92,6 @@ function KeyRow({
   onDelete: (id: string) => void;
   deleteIsPending: boolean;
 }) {
-  const [showActivity, setShowActivity] = useState(false);
-
   const expiringSoon =
     apiKey.expiresAt &&
     apiKey.expiresAt > new Date() &&
@@ -233,19 +129,6 @@ function KeyRow({
         <div className="flex items-center gap-1">
           <Button
             variant="ghost"
-            size="sm"
-            className="h-7 px-2 text-xs text-muted-foreground gap-1"
-            onClick={() => setShowActivity((v) => !v)}
-          >
-            <Activity className="size-3" />
-            {showActivity ? (
-              <ChevronUp className="size-3" />
-            ) : (
-              <ChevronDown className="size-3" />
-            )}
-          </Button>
-          <Button
-            variant="ghost"
             size="icon"
             className="size-8 text-muted-foreground hover:text-destructive"
             onClick={() => onDelete(apiKey.id)}
@@ -259,14 +142,6 @@ function KeyRow({
           </Button>
         </div>
       </div>
-      {showActivity && (
-        <div className="border-t border-border px-3 pb-3">
-          <p className="text-[10px] font-medium text-muted-foreground uppercase tracking-wide pt-2 pb-1">
-            Recent Activity
-          </p>
-          <KeyActivityPanel keyId={apiKey.id} />
-        </div>
-      )}
     </div>
   );
 }
@@ -280,11 +155,9 @@ export function ApiKeys() {
   const [showCreate, setShowCreate] = useState(false);
   const [copied, setCopied] = useState<string | null>(null);
   const [newlyCreatedKey, setNewlyCreatedKey] = useState<string | null>(null);
-  // true = full access (*), false = custom individual scopes
   const [fullAccess, setFullAccess] = useState(true);
   const [customScopes, setCustomScopes] = useState<string[]>([]);
 
-  // eslint-disable-next-line react-hooks/purity -- stable snapshot for expiry badge display
   const now = Date.now();
 
   const toggleScope = (scope: string) => {
@@ -296,7 +169,6 @@ export function ApiKeys() {
   const handleFullAccessChange = (checked: boolean) => {
     setFullAccess(checked);
     if (checked) {
-      // Clear individual selections when switching back to full access
       setCustomScopes([]);
     }
   };
@@ -370,7 +242,6 @@ export function ApiKeys() {
 
   const copyConfig = () => copyToClipboard(hostedConfig, "Config");
 
-  // Min date for the expiry picker = tomorrow
   const tomorrow = new Date();
   tomorrow.setDate(tomorrow.getDate() + 1);
   const minDate = tomorrow.toISOString().split("T")[0];
@@ -389,7 +260,7 @@ export function ApiKeys() {
         <Card className="border-green-500/50 bg-green-50 dark:bg-green-950/20">
           <CardContent className="pt-4 space-y-2">
             <p className="text-sm font-medium text-green-700 dark:text-green-400">
-              Your new API key (copy it now — it won't be shown again):
+              Your new API key (copy it now, it won't be shown again):
             </p>
             <div className="flex items-center gap-2">
               <code className="flex-1 bg-white dark:bg-black/20 px-3 py-2 rounded text-xs font-mono border border-green-300 dark:border-green-700 break-all">
@@ -469,7 +340,6 @@ export function ApiKeys() {
               <div className="space-y-2">
                 <Label className="text-xs">Permissions</Label>
                 <div className="rounded-md border border-border divide-y divide-border">
-                  {/* Full access (* scope) row */}
                   <label className="flex items-center gap-2.5 px-3 py-2 cursor-pointer hover:bg-muted/40 transition-colors">
                     <Checkbox
                       checked={fullAccess}
@@ -480,7 +350,7 @@ export function ApiKeys() {
                     />
                     <span className="text-xs font-mono font-medium">*</span>
                     <span className="text-xs text-muted-foreground flex-1">
-                      Full access — all current and future scopes
+                      Full access, all current and future scopes
                     </span>
                     <Tooltip>
                       <TooltipTrigger asChild>
@@ -493,7 +363,6 @@ export function ApiKeys() {
                     </Tooltip>
                   </label>
 
-                  {/* Individual scope rows */}
                   {SCOPE_OPTIONS.map(({ value, label, description }) => (
                     <label
                       key={value}
@@ -511,9 +380,7 @@ export function ApiKeys() {
                         disabled={createMutation.isPending || fullAccess}
                       />
                       <span className="text-xs font-mono">{label}</span>
-                      <span className="text-xs text-muted-foreground flex-1">
-                        —
-                      </span>
+                      <span className="text-xs text-muted-foreground flex-1" />
                       <Tooltip>
                         <TooltipTrigger asChild>
                           <Info className="size-3 text-muted-foreground/60 shrink-0" />

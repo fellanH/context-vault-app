@@ -4,12 +4,14 @@
 
 This is **not a monorepo/workspace**. Two independent packages share one git repo:
 
-| Directory                         | Role              | Deployed to |
-| --------------------------------- | ----------------- | ----------- |
-| `src/` + root `package.json`      | React frontend    | Vercel      |
-| `server/` + `server/package.json` | Hono HTTP backend | Fly.io      |
+| Directory                         | Role              | Deployed to         |
+| --------------------------------- | ----------------- | ------------------- |
+| `src/` + root `package.json`      | React frontend    | Vercel              |
+| `server/` + `server/package.json` | Hono HTTP backend | Cloudflare Workers  |
 
-`npm install` at the root installs only frontend deps. Backend deps live in `server/node_modules` (`cd server && npm install`). The two packages have separate `node_modules`, separate build pipelines, and separate deploy targets. Vercel never touches `server/`; Fly.io Docker never touches `src/`. This is intentional — not a setup error.
+`npm install` at the root installs only frontend deps. Backend deps live in `server/node_modules` (`cd server && npm install`). The two packages have separate `node_modules`, separate build pipelines, and separate deploy targets. Vercel never touches `server/`; the Workers build never touches `src/`. This is intentional.
+
+The frontend points at `https://api.context-vault.com` (set via `VITE_API_URL` or hardcoded default). Auth uses better-auth with email/password + GitHub social login. Teams use better-auth's organization plugin. API keys use better-auth's apiKey plugin.
 
 ## Stack
 
@@ -106,24 +108,20 @@ All feedback → GitHub Issue immediately. Labels: `feedback`, `bug`, `feature`,
 GitHub Issues is the only backlog. No Notion, no Slack threads.
 Weekly triage: close anything with no clear value or not aligned with current themes.
 
-## Server (Fly.io)
+## Server (Cloudflare Workers)
 
-The hosted backend lives in `server/`. It's a Hono HTTP server deployed to Fly.io.
-Depends on `@context-vault/core` from npm.
+The hosted backend lives in `server/`. It's a Hono HTTP server deployed to Cloudflare Workers.
+Uses Turso (libSQL) for the database, better-auth for authentication, and R2 for file storage.
 
 ```bash
-# Dev (run in addition to npm run dev)
-node --watch server/src/index.js
-
-# Test
-cd server && npm install && npm test
+# Dev
+cd server && npx wrangler dev
 
 # Deploy
-npm run fly:deploy   # or: fly deploy from repo root
+cd server && npx wrangler deploy
 ```
 
-`fly.toml` is at the repo root. Docker build context is the repo root; Dockerfile is at `server/Dockerfile`.
-Fly secrets: AUTH_REQUIRED, VAULT_MASTER_SECRET, STRIPE_SECRET_KEY, STRIPE_WEBHOOK_SECRET, STRIPE_PRICE_PRO.
+`wrangler.toml` is in `server/`. Workers env vars (secrets): TURSO_URL, TURSO_AUTH_TOKEN, BETTER_AUTH_SECRET, GITHUB_CLIENT_ID, GITHUB_CLIENT_SECRET, STRIPE_SECRET_KEY, STRIPE_WEBHOOK_SECRET, STRIPE_PRICE_PRO, CORS_ORIGIN, AUTH_REQUIRED.
 
 ## Staying lean
 

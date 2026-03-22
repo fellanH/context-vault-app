@@ -2,6 +2,11 @@ name = "context-vault-api"
 main = "server/src/index.js"
 compatibility_date = "2025-04-01"
 compatibility_flags = ["nodejs_compat_v2"]
+workers_dev = true
+
+routes = [
+  { pattern = "api.context-vault.com/*", zone_name = "context-vault.com" }
+]
 
 [observability]
 enabled = true

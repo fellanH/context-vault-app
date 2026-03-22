@@ -12,22 +12,16 @@ import { Input } from "../../components/ui/input";
 import { Label } from "../../components/ui/label";
 import {
   Users,
-  FileText,
-  HardDrive,
   UserPlus,
   Trash2,
   Loader2,
-  Copy,
-  Check,
 } from "lucide-react";
 import {
   useTeam,
-  useTeamUsage,
   useInviteMember,
   useRemoveMember,
 } from "../../lib/hooks";
 import { useAuth } from "../../lib/auth";
-import { formatMegabytes } from "../../lib/format";
 import { toast } from "sonner";
 
 const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -36,13 +30,11 @@ export function TeamDashboard() {
   const { id } = useParams<{ id: string }>();
   const { user } = useAuth();
   const { data: team, isLoading } = useTeam(id || null);
-  const { data: usage } = useTeamUsage(id || null);
   const inviteMember = useInviteMember();
   const removeMember = useRemoveMember();
 
   const [inviteEmail, setInviteEmail] = useState("");
   const [showInvite, setShowInvite] = useState(false);
-  const [copiedToken, setCopiedToken] = useState<string | null>(null);
 
   const isOwnerOrAdmin = team?.role === "owner" || team?.role === "admin";
 
@@ -55,7 +47,6 @@ export function TeamDashboard() {
       {
         onSuccess: (data) => {
           toast.success(`Invite sent to ${data.email}`);
-          setCopiedToken(data.token);
           setInviteEmail("");
         },
         onError: (err) => {
@@ -65,25 +56,17 @@ export function TeamDashboard() {
     );
   };
 
-  const handleRemove = (userId: string, email: string) => {
+  const handleRemove = (memberId: string, email: string) => {
     if (!id) return;
     if (!confirm(`Remove ${email} from the team?`)) return;
 
     removeMember.mutate(
-      { teamId: id, userId },
+      { teamId: id, memberId },
       {
         onSuccess: () => toast.success(`${email} removed from team`),
         onError: (err) => toast.error(err.message || "Failed to remove member"),
       },
     );
-  };
-
-  const copyInviteLink = async (token: string) => {
-    const link = `${window.location.origin}/team/invite/${token}?team=${id}`;
-    await navigator.clipboard.writeText(link);
-    setCopiedToken(token);
-    toast.success("Invite link copied");
-    setTimeout(() => setCopiedToken(null), 2000);
   };
 
   if (isLoading) {
@@ -166,82 +149,26 @@ export function TeamDashboard() {
                 )}
               </Button>
             </form>
-            {copiedToken && (
-              <div className="mt-3 p-3 bg-muted rounded-md">
-                <p className="text-xs text-muted-foreground mb-1">
-                  Share this invite link with the user:
-                </p>
-                <div className="flex items-center gap-2">
-                  <code className="text-xs flex-1 truncate">
-                    {window.location.origin}/team/invite/{copiedToken}?team={id}
-                  </code>
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    className="size-7 shrink-0"
-                    onClick={() => copyInviteLink(copiedToken)}
-                  >
-                    {copiedToken ? (
-                      <Check className="size-3" />
-                    ) : (
-                      <Copy className="size-3" />
-                    )}
-                  </Button>
-                </div>
-              </div>
-            )}
           </CardContent>
         </Card>
       )}
 
-      {/* Usage Stats */}
-      {usage && (
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-          <Card>
-            <CardHeader className="pb-2">
-              <div className="flex items-center justify-between">
-                <CardTitle className="text-xs font-medium text-muted-foreground">
-                  Members
-                </CardTitle>
-                <Users className="size-4 text-muted-foreground" />
-              </div>
-            </CardHeader>
-            <CardContent>
-              <span className="text-2xl font-semibold">{usage.members}</span>
-            </CardContent>
-          </Card>
-          <Card>
-            <CardHeader className="pb-2">
-              <div className="flex items-center justify-between">
-                <CardTitle className="text-xs font-medium text-muted-foreground">
-                  Entries
-                </CardTitle>
-                <FileText className="size-4 text-muted-foreground" />
-              </div>
-            </CardHeader>
-            <CardContent>
-              <span className="text-2xl font-semibold">
-                {usage.usage.entries}
-              </span>
-            </CardContent>
-          </Card>
-          <Card>
-            <CardHeader className="pb-2">
-              <div className="flex items-center justify-between">
-                <CardTitle className="text-xs font-medium text-muted-foreground">
-                  Storage
-                </CardTitle>
-                <HardDrive className="size-4 text-muted-foreground" />
-              </div>
-            </CardHeader>
-            <CardContent>
-              <span className="text-2xl font-semibold">
-                {formatMegabytes(usage.usage.storageMb)} MB
-              </span>
-            </CardContent>
-          </Card>
-        </div>
-      )}
+      {/* Stats */}
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+        <Card>
+          <CardHeader className="pb-2">
+            <div className="flex items-center justify-between">
+              <CardTitle className="text-xs font-medium text-muted-foreground">
+                Members
+              </CardTitle>
+              <Users className="size-4 text-muted-foreground" />
+            </div>
+          </CardHeader>
+          <CardContent>
+            <span className="text-2xl font-semibold">{team.members.length}</span>
+          </CardContent>
+        </Card>
+      </div>
 
       {/* Members List */}
       <Card>
@@ -254,7 +181,7 @@ export function TeamDashboard() {
           <div className="space-y-2">
             {team.members.map((member) => (
               <div
-                key={member.userId}
+                key={member.id}
                 className="flex items-center justify-between py-2 border-b border-border last:border-0"
               >
                 <div className="flex items-center gap-3 min-w-0">
@@ -285,7 +212,7 @@ export function TeamDashboard() {
                       variant="ghost"
                       size="icon"
                       className="size-7 text-muted-foreground hover:text-destructive"
-                      onClick={() => handleRemove(member.userId, member.email)}
+                      onClick={() => handleRemove(member.id, member.email)}
                       disabled={removeMember.isPending}
                     >
                       <Trash2 className="size-3.5" />
@@ -316,7 +243,7 @@ export function TeamDashboard() {
                       <p className="text-sm">{invite.email}</p>
                       <p className="text-xs text-muted-foreground">
                         Expires{" "}
-                        {new Date(invite.expiresAt).toLocaleDateString()}
+                        {invite.expiresAt.toLocaleDateString()}
                       </p>
                     </div>
                     <Badge variant="secondary" className="text-[10px]">

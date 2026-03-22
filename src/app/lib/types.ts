@@ -127,119 +127,8 @@ export interface ApiUsageResponse {
   };
 }
 
-// ─── Team types ───────────────────────────────────────────────────────────────
-
-export interface Team {
-  id: string;
-  name: string;
-  role: "owner" | "admin" | "member";
-  tier: string;
-  createdAt: Date;
-}
-
-export interface TeamMember {
-  userId: string;
-  email: string;
-  name: string | null;
-  role: "owner" | "admin" | "member";
-  joinedAt: Date;
-}
-
-export interface TeamInvite {
-  id: string;
-  email: string;
-  status: "pending" | "accepted" | "expired";
-  expiresAt: Date;
-  createdAt: Date;
-}
-
-export interface TeamUsage {
-  teamId: string;
-  name: string;
-  tier: string;
-  members: number;
-  usage: {
-    entries: number;
-    storageMb: number;
-  };
-}
-
-export interface ApiTeamListResponse {
-  teams: Array<{
-    id: string;
-    name: string;
-    role: "owner" | "admin" | "member";
-    tier: string;
-    createdAt: string;
-  }>;
-}
-
-export interface ApiTeamDetailResponse {
-  id: string;
-  name: string;
-  tier: string;
-  role: "owner" | "admin" | "member";
-  createdAt: string;
-  members: Array<{
-    userId: string;
-    email: string;
-    name: string | null;
-    role: "owner" | "admin" | "member";
-    joinedAt: string;
-  }>;
-  invites: Array<{
-    id: string;
-    email: string;
-    status: "pending" | "accepted" | "expired";
-    expiresAt: string;
-    createdAt: string;
-  }>;
-}
-
-export interface ApiTeamUsageResponse {
-  teamId: string;
-  name: string;
-  tier: string;
-  members: number;
-  usage: {
-    entries: number;
-    storageMb: number;
-  };
-}
-
-export function transformTeam(raw: ApiTeamListResponse["teams"][0]): Team {
-  return {
-    id: raw.id,
-    name: raw.name,
-    role: raw.role,
-    tier: raw.tier,
-    createdAt: new Date(raw.createdAt),
-  };
-}
-
-export function transformTeamMember(
-  raw: ApiTeamDetailResponse["members"][0],
-): TeamMember {
-  return {
-    userId: raw.userId,
-    email: raw.email,
-    name: raw.name,
-    role: raw.role,
-    joinedAt: new Date(raw.joinedAt),
-  };
-}
-
-export function transformTeamInvite(
-  raw: ApiTeamDetailResponse["invites"][0],
-): TeamInvite {
-  return {
-    id: raw.id,
-    email: raw.email,
-    status: raw.status,
-    expiresAt: new Date(raw.expiresAt),
-    createdAt: new Date(raw.createdAt),
-  };
-}
+// ─── Team types (now served by better-auth organization plugin) ──────────────
+// Team/org types are defined in hooks.ts alongside the hooks that use them.
 
 export interface ApiRegisterResponse {
   userId: string;
@@ -287,17 +176,7 @@ export function transformSearchResult(raw: ApiSearchResult): SearchResult {
   };
 }
 
-export function transformApiKey(raw: ApiKeyListItem): ApiKey {
-  return {
-    id: raw.id,
-    name: raw.name,
-    prefix: raw.key_prefix,
-    scopes: raw.scopes ? JSON.parse(raw.scopes) : ["*"],
-    createdAt: new Date(raw.created_at),
-    lastUsedAt: raw.last_used ? new Date(raw.last_used) : undefined,
-    expiresAt: raw.expires_at ? new Date(raw.expires_at) : undefined,
-  };
-}
+// API keys are now fetched via better-auth's apiKey plugin in hooks.ts
 
 export function transformUsage(
   raw: ApiUsageResponse,

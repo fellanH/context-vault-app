@@ -1,4 +1,6 @@
-const HOSTED_API_URL = import.meta.env.VITE_API_URL || "/api";
+import { API_BASE_URL } from "./auth-client";
+
+const HOSTED_API_URL = `${API_BASE_URL}/api`;
 
 // One-time cleanup of old localStorage/sessionStorage keys from the port-based local server era
 try {

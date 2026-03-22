@@ -1,35 +1,29 @@
 {
   "name": "@context-vault/hosted",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": true,
   "type": "module",
-  "description": "Hosted context-vault: Hono HTTP server with Turso storage, auth, and billing",
+  "description": "Hosted context-vault: Hono on Cloudflare Workers with Turso, R2, and Workers AI",
   "main": "src/index.js",
   "license": "BSL-1.1",
-  "engines": {
-    "node": ">=20"
-  },
   "scripts": {
-    "start": "node src/index.js",
-    "dev": "node --watch src/index.js",
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
     "test": "vitest run"
   },
   "dependencies": {
-    "@aws-sdk/client-s3": "^3.700.0",
     "@better-auth/api-key": "^1.5.5",
-    "@context-vault/core": "^3.4.4",
-    "@hono/node-server": "^1.13.0",
     "@hono/zod-openapi": "^1.2.2",
     "@libsql/client": "^0.14.0",
-    "@sentry/node": "^10.39.0",
+    "@libsql/kysely-libsql": "^0.4.1",
     "better-auth": "^1.5.5",
-    "better-sqlite3": "^12.8.0",
     "hono": "^4.7.0",
+    "kysely": "^0.27.0",
     "resend": "^6.9.2",
     "stripe": "^17.0.0"
   },
   "devDependencies": {
-    "@modelcontextprotocol/sdk": "^1.26.0",
-    "vitest": "^3.0.0"
+    "vitest": "^3.0.0",
+    "wrangler": "^4.0.0"
   }
 }

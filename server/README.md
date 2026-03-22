@@ -29,7 +29,10 @@ Uses `@context-vault/core` for all vault operations. Each request gets a fresh M
 | `PUBLIC_URL`            | No       | —                                         | Canonical app URL for OAuth redirects |
 | `STRIPE_SECRET_KEY`     | No       | —                                         | Stripe API secret key                 |
 | `STRIPE_WEBHOOK_SECRET` | No       | —                                         | Stripe webhook signing secret         |
-| `STRIPE_PRICE_PRO`      | No       | —                                         | Stripe Price ID for Pro tier          |
+| `STRIPE_PRICE_PRO`      | No       | —                                         | Stripe Price ID for Pro monthly ($9/mo) |
+| `STRIPE_PRICE_PRO_ANNUAL` | No     | —                                         | Stripe Price ID for Pro annual ($90/yr) |
+| `STRIPE_PRICE_TEAM_BASE` | No      | —                                         | Stripe Price ID for Team base ($29/mo) |
+| `STRIPE_PRICE_TEAM_SEAT` | No      | —                                         | Stripe Price ID for Team per-seat ($9/mo/seat) |
 | `APP_HOSTS`             | No       | `app.context-vault.com`                   | Hostnames serving the product app     |
 | `MARKETING_HOSTS`       | No       | `www.context-vault.com,context-vault.com` | Hostnames serving marketing           |
 | `CONTEXT_MCP_DATA_DIR`  | No       | `~/.context-mcp`                          | Data directory                        |

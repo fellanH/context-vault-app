@@ -20,42 +20,47 @@ type BillingPeriod = "monthly" | "annual";
 
 const PRO_MONTHLY_PRICE = 9;
 const PRO_ANNUAL_PRICE = 90; // $90/yr = $7.50/mo
+const TEAM_BASE_PRICE = 29;
+const TEAM_SEAT_PRICE = 9;
 
 const plans = [
   {
     tier: "free" as const,
+    description: "Local vault, unlimited and free forever.",
     features: [
-      "Hosted vault & MCP",
-      "Unlimited entries",
-      "50 MB storage",
-      "200 requests/day",
-      "Unlimited API keys",
+      "Unlimited local entries",
+      "Unlimited local search",
+      "MCP server (local)",
       "Community support",
     ],
+    note: null,
   },
   {
     tier: "pro" as const,
+    description: "Hosted personal vault across all your devices.",
     features: [
-      "Unlimited entries",
-      "5 GB storage",
-      "Multi-device access",
+      "10K hosted entries",
+      "Multi-device sync",
+      "Recall tracking dashboard",
       "Hosted MCP (always on)",
-      "Unlimited API keys",
+      "API key management",
       "Export & import",
       "Priority support",
     ],
+    note: null,
   },
   {
     tier: "team" as const,
+    description: "Shared vault for your engineering team.",
     features: [
-      "Unlimited entries",
-      "20 GB storage",
-      "Unlimited requests",
-      "Unlimited API keys",
-      "Team sharing",
-      "SSO",
+      "50K entries per team",
+      "Shared team vault",
+      "Member management",
+      "SSO (SAML + OIDC)",
+      "Admin controls",
       "Dedicated support",
     ],
+    note: `$${TEAM_SEAT_PRICE}/mo per additional seat`,
   },
 ];
 
@@ -97,16 +102,14 @@ export function Billing() {
   };
 
   const handleUpgrade = (tier: string) => {
-    if (tier === "team") {
-      toast.info("Contact us at team@context-vault.com for Team plans");
-      return;
-    }
     const plan =
-      tier === "pro"
-        ? billingPeriod === "annual"
-          ? "pro_annual"
-          : "pro_monthly"
-        : undefined;
+      tier === "team"
+        ? "team"
+        : tier === "pro"
+          ? billingPeriod === "annual"
+            ? "pro_annual"
+            : "pro_monthly"
+          : undefined;
     checkoutMutation.mutate(
       {
         plan,
@@ -231,18 +234,18 @@ export function Billing() {
             <X className="size-4" />
           </button>
           <p className="font-medium text-blue-900 dark:text-blue-100 pr-6">
-            Already running context-vault/core locally?
+            Using the free local vault?
           </p>
           <p className="mt-1 text-blue-800 dark:text-blue-200">
-            The hosted vault gives you what local can't:
+            Upgrade to Pro for hosted features:
           </p>
           <ul className="mt-2 space-y-1 text-blue-800 dark:text-blue-200">
             {[
-              "Access from any device, not just localhost",
-              "Hosted MCP server that's always on, no process to run",
-              "Automatic cloud backup",
-              "Team sharing (Pro+ coming)",
-              "Web app, Chrome extension, search UI",
+              "Access your vault from any device",
+              "Hosted MCP server, always on",
+              "Recall tracking dashboard",
+              "API key management",
+              "Team sharing with the Team plan",
             ].map((item) => (
               <li key={item} className="flex items-start gap-2">
                 <Check className="size-3.5 mt-0.5 shrink-0 text-blue-600 dark:text-blue-400" />
@@ -300,10 +303,12 @@ export function Billing() {
 
           let priceDisplay = "$0";
           let periodDisplay: string | null = null;
+          let subtext: string | null = null;
           let savingsCallout: string | null = null;
 
           if (plan.tier === "free") {
             priceDisplay = "$0";
+            subtext = "forever";
           } else if (isProPlan) {
             if (billingPeriod === "annual" && currentTier === "free") {
               priceDisplay = `$${PRO_ANNUAL_PRICE}`;
@@ -314,7 +319,7 @@ export function Billing() {
               periodDisplay = "/mo";
             }
           } else if (plan.tier === "team") {
-            priceDisplay = "$29";
+            priceDisplay = `$${TEAM_BASE_PRICE}`;
             periodDisplay = "/mo";
           }
 
@@ -338,12 +343,20 @@ export function Billing() {
                       {periodDisplay}
                     </span>
                   )}
+                  {subtext && (
+                    <span className="text-sm text-muted-foreground ml-1">
+                      {subtext}
+                    </span>
+                  )}
                   {savingsCallout && (
                     <p className="mt-1 text-xs text-primary font-medium">
                       {savingsCallout}
                     </p>
                   )}
                 </div>
+                <p className="text-xs text-muted-foreground mt-1">
+                  {plan.description}
+                </p>
               </CardHeader>
               <CardContent>
                 <ul className="space-y-2 mb-4">
@@ -357,6 +370,11 @@ export function Billing() {
                     </li>
                   ))}
                 </ul>
+                {plan.note && (
+                  <p className="text-xs text-muted-foreground mb-4">
+                    {plan.note}
+                  </p>
+                )}
                 {!isCurrent && (
                   <Button
                     className="w-full"
@@ -367,7 +385,11 @@ export function Billing() {
                     {checkoutMutation.isPending ? (
                       <Loader2 className="size-3.5 animate-spin mr-1.5" />
                     ) : null}
-                    {plan.tier === "pro" ? "Upgrade to Pro" : "Contact Sales"}
+                    {plan.tier === "pro"
+                      ? "Upgrade to Pro"
+                      : plan.tier === "team"
+                        ? "Start Team Plan"
+                        : "Get Started"}
                   </Button>
                 )}
               </CardContent>

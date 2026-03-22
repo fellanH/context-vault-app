@@ -6,7 +6,7 @@
  *
  * Required env vars (set via wrangler secret):
  *   STRIPE_SECRET_KEY, STRIPE_WEBHOOK_SECRET, STRIPE_PRICE_PRO,
- *   STRIPE_PRICE_PRO_ANNUAL, STRIPE_PRICE_TEAM
+ *   STRIPE_PRICE_PRO_ANNUAL, STRIPE_PRICE_TEAM_BASE, STRIPE_PRICE_TEAM_SEAT
  */
 
 let stripe = null;
@@ -45,11 +45,19 @@ function getPriceId(env, plan) {
     case "pro_annual":
       return env.STRIPE_PRICE_PRO_ANNUAL || null;
     case "team":
-      return env.STRIPE_PRICE_TEAM || null;
+      return env.STRIPE_PRICE_TEAM_BASE || null;
     case "pro_monthly":
     default:
       return env.STRIPE_PRICE_PRO || null;
   }
+}
+
+/**
+ * Get the per-seat price ID for Team plans.
+ * @param {object} env
+ */
+function getTeamSeatPriceId(env) {
+  return env.STRIPE_PRICE_TEAM_SEAT || null;
 }
 
 /**
@@ -69,9 +77,19 @@ export async function createCheckoutSession(
 
   const appUrl = env.APP_URL || "https://app.context-vault.com";
 
+  const lineItems = [{ price: priceId, quantity: 1 }];
+
+  // Team plans include a per-seat add-on (1 seat included in base)
+  if (plan === "team") {
+    const seatPriceId = getTeamSeatPriceId(env);
+    if (seatPriceId) {
+      lineItems.push({ price: seatPriceId, quantity: 1 });
+    }
+  }
+
   const params = {
     mode: "subscription",
-    line_items: [{ price: priceId, quantity: 1 }],
+    line_items: lineItems,
     allow_promotion_codes: true,
     success_url:
       successUrl ||
@@ -131,21 +149,21 @@ export async function createPortalSession(env, { customerId, returnUrl }) {
 
 const TIER_LIMITS = {
   free: {
-    maxEntries: Infinity,
-    storageMb: 50,
-    requestsPerDay: 200,
-    apiKeys: Infinity,
+    maxEntries: 0, // Free tier is local-only, no hosted entries
+    storageMb: 0,
+    requestsPerDay: 0,
+    apiKeys: 0,
     exportEnabled: false,
   },
   pro: {
-    maxEntries: Infinity,
+    maxEntries: 10000,
     storageMb: 5120,
     requestsPerDay: Infinity,
     apiKeys: Infinity,
     exportEnabled: true,
   },
   team: {
-    maxEntries: Infinity,
+    maxEntries: 50000,
     storageMb: 20480,
     requestsPerDay: Infinity,
     apiKeys: Infinity,

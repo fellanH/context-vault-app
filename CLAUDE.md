@@ -28,29 +28,25 @@ npm run build     # production build -> dist/
 
 ## Branches
 
+Work directly on `main`. Push to `main` auto-deploys to production via Cloudflare Pages.
+
 | Branch | Purpose                           | Deploys to                                |
 | ------ | --------------------------------- | ----------------------------------------- |
-| `dev`  | All development work happens here | Preview (`context-vault-app.pages.dev`)    |
-| `main` | Production-ready code only        | Production (`app.context-vault.com`)       |
+| `main` | All work + production             | Production (`app.context-vault.com`)       |
+| `dev`  | Legacy preview branch (unused)    | Preview (`context-vault-app.pages.dev`)    |
 
 **Normal flow:**
 
 ```
-work on dev -> git push origin dev -> verify on context-vault-app.pages.dev
-  -> merge dev into main -> auto-deploys to production
+work on main -> git push origin main -> auto-deploys to app.context-vault.com
 ```
-
-Merging `dev` into `main` IS the production deploy.
 
 ## Deploy
 
 ### Shipping to production
 
 ```bash
-git checkout main
-git merge dev --no-ff
 git push origin main     # triggers Cloudflare Pages auto-deploy to production
-git checkout dev
 ```
 
 ### Cloudflare Pages project

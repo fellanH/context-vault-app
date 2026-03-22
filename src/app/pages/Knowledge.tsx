@@ -168,8 +168,17 @@ export function Knowledge() {
                     {filteredEntries.map((entry) => (
                       <tr
                         key={entry.id}
-                        className="border-b border-border last:border-0 hover:bg-muted/30 cursor-pointer transition-colors"
+                        className="border-b border-border last:border-0 hover:bg-muted/30 cursor-pointer transition-colors focus-visible:bg-muted/30 focus-visible:outline-none"
                         onClick={() => setSelectedEntry(entry)}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter" || e.key === " ") {
+                            e.preventDefault();
+                            setSelectedEntry(entry);
+                          }
+                        }}
+                        tabIndex={0}
+                        role="button"
+                        aria-label={`View entry: ${entry.title}`}
                       >
                         <td className="px-4 py-3">
                           <code className="text-xs font-mono text-muted-foreground">
@@ -238,6 +247,7 @@ export function Knowledge() {
                       className="size-8"
                       disabled={page === 0}
                       onClick={() => setPage((p) => p - 1)}
+                      aria-label="Previous page"
                     >
                       <ChevronLeft className="size-4" />
                     </Button>
@@ -250,6 +260,7 @@ export function Knowledge() {
                       className="size-8"
                       disabled={page >= totalPages - 1}
                       onClick={() => setPage((p) => p + 1)}
+                      aria-label="Next page"
                     >
                       <ChevronRight className="size-4" />
                     </Button>

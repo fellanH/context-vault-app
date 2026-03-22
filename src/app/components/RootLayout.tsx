@@ -18,6 +18,7 @@ import {
   ExternalLink,
   Plus,
   ScrollText,
+  BookOpen,
 } from "lucide-react";
 import { useTheme } from "next-themes";
 import { Button } from "./ui/button";
@@ -53,6 +54,7 @@ const settingsItems: NavItem[] = [
   { path: "/settings/billing", label: "Billing", icon: CreditCard },
   { path: "/settings/data", label: "Data", icon: Database },
   { path: "/settings/account", label: "Account", icon: User },
+  { path: "/settings/agent-rules", label: "Agent Rules", icon: BookOpen },
 ];
 
 function getPageTitle(pathname: string): string {
@@ -165,27 +167,30 @@ export function RootLayout() {
               Teams
             </div>
             {teams?.map((team) => (
-              <Link key={team.id} to={`/team/${team.id}`}>
-                <Button
-                  variant={isActive(`/team/${team.id}`) ? "secondary" : "ghost"}
-                  className="w-full justify-start text-sm"
-                  size="sm"
-                >
+              <Button
+                key={team.id}
+                variant={isActive(`/team/${team.id}`) ? "secondary" : "ghost"}
+                className="w-full justify-start text-sm"
+                size="sm"
+                asChild
+              >
+                <Link to={`/team/${team.id}`}>
                   <Users className="size-4 mr-2" />
                   {team.name}
-                </Button>
-              </Link>
+                </Link>
+              </Button>
             ))}
-            <Link to="/team/new">
-              <Button
-                variant={isActive("/team/new") ? "secondary" : "ghost"}
-                className="w-full justify-start text-sm text-muted-foreground"
-                size="sm"
-              >
+            <Button
+              variant={isActive("/team/new") ? "secondary" : "ghost"}
+              className="w-full justify-start text-sm text-muted-foreground"
+              size="sm"
+              asChild
+            >
+              <Link to="/team/new">
                 <Plus className="size-4 mr-2" />
                 New Team
-              </Button>
-            </Link>
+              </Link>
+            </Button>
           </div>
           <NavSection
             label="Settings"
@@ -264,17 +269,16 @@ export function RootLayout() {
           </div>
 
           <div className="flex items-center gap-2">
-            <Link to="/search">
-              <button
-                type="button"
-                className="flex items-center gap-2 px-3 py-1.5 rounded-md border border-border text-xs text-muted-foreground hover:text-foreground hover:bg-accent transition-colors"
-              >
-                <Search className="size-3" />
-                Search...
-                <kbd className="ml-2 px-1.5 py-0.5 bg-muted rounded text-[10px] font-mono">
-                  {"\u2318"}K
-                </kbd>
-              </button>
+            <Link
+              to="/search"
+              className="flex items-center gap-2 px-3 py-1.5 rounded-md border border-border text-xs text-muted-foreground hover:text-foreground hover:bg-accent transition-colors"
+              aria-label="Search vault"
+            >
+              <Search className="size-3" />
+              Search...
+              <kbd className="ml-2 px-1.5 py-0.5 bg-muted rounded text-[10px] font-mono">
+                {"\u2318"}K
+              </kbd>
             </Link>
 
             <Button
@@ -282,6 +286,7 @@ export function RootLayout() {
               size="icon"
               className="size-8"
               onClick={() => setTheme(theme === "dark" ? "light" : "dark")}
+              aria-label={theme === "dark" ? "Switch to light mode" : "Switch to dark mode"}
             >
               {theme === "dark" ? (
                 <Sun className="size-4" />
@@ -296,6 +301,9 @@ export function RootLayout() {
                 type="button"
                 onClick={() => setAvatarOpen(!avatarOpen)}
                 className="flex items-center gap-1.5 px-2 py-1 rounded-md hover:bg-accent transition-colors"
+                aria-label="User menu"
+                aria-expanded={avatarOpen}
+                aria-haspopup="true"
               >
                 <div className="size-7 rounded-full bg-primary text-primary-foreground flex items-center justify-center text-xs font-medium">
                   {initials}
@@ -372,16 +380,18 @@ function NavSection({
       {items.map((item) => {
         const Icon = item.icon;
         return (
-          <Link key={item.path} to={item.path}>
-            <Button
-              variant={isActive(item.path) ? "secondary" : "ghost"}
-              className="w-full justify-start text-sm"
-              size="sm"
-            >
+          <Button
+            key={item.path}
+            variant={isActive(item.path) ? "secondary" : "ghost"}
+            className="w-full justify-start text-sm"
+            size="sm"
+            asChild
+          >
+            <Link to={item.path}>
               <Icon className="size-4 mr-2" />
               {item.label}
-            </Button>
-          </Link>
+            </Link>
+          </Button>
         );
       })}
     </div>

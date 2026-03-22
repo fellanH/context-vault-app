@@ -298,7 +298,7 @@ Entry content here`}</pre>
                       <span className="font-medium">{e.title}</span>
                       <span className="text-muted-foreground">
                         {" "}
-                        — {e.error}
+                        : {e.error}
                       </span>
                     </div>
                   ))}

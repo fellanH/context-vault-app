@@ -133,6 +133,7 @@ function KeyRow({
             className="size-8 text-muted-foreground hover:text-destructive"
             onClick={() => onDelete(apiKey.id)}
             disabled={deleteIsPending}
+            aria-label={`Delete API key ${apiKey.name}`}
           >
             {deleteIsPending ? (
               <Loader2 className="size-3.5 animate-spin" />
@@ -249,7 +250,7 @@ export function ApiKeys() {
   return (
     <div className="p-6 max-w-3xl mx-auto space-y-6">
       <div>
-        <h1 className="text-2xl font-bold">API Keys</h1>
+        <h1 className="text-2xl font-semibold">API Keys</h1>
         <p className="text-sm text-muted-foreground mt-1">
           Manage your API keys for connecting Context Vault to Claude Code and
           other tools.

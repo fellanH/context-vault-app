@@ -129,7 +129,7 @@ export function Billing() {
   return (
     <div className="p-6 max-w-3xl mx-auto space-y-6">
       <div>
-        <h1 className="text-2xl font-bold">Billing</h1>
+        <h1 className="text-2xl font-semibold">Billing</h1>
         <p className="text-sm text-muted-foreground mt-1">
           Manage your plan and view usage.
         </p>
@@ -238,7 +238,7 @@ export function Billing() {
           </p>
           <ul className="mt-2 space-y-1 text-blue-800 dark:text-blue-200">
             {[
-              "Access from any device — not just localhost",
+              "Access from any device, not just localhost",
               "Hosted MCP server that's always on, no process to run",
               "Automatic cloud backup",
               "Team sharing (Pro+ coming)",
@@ -308,7 +308,7 @@ export function Billing() {
             if (billingPeriod === "annual" && currentTier === "free") {
               priceDisplay = `$${PRO_ANNUAL_PRICE}`;
               periodDisplay = "/yr";
-              savingsCallout = `$${Math.round(PRO_ANNUAL_PRICE / 12 * 10) / 10}/mo — 2 months free`;
+              savingsCallout = `$${Math.round(PRO_ANNUAL_PRICE / 12 * 10) / 10}/mo (2 months free)`;
             } else {
               priceDisplay = `$${PRO_MONTHLY_PRICE}`;
               periodDisplay = "/mo";

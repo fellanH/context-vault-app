@@ -4,7 +4,7 @@
     "date": "2026-02-23",
     "title": "API Key Scopes & MCP Activity Dashboard",
     "bullets": [
-      "API keys now support fine-grained scopes — restrict keys to read-only or write access per vault section",
+      "API keys now support fine-grained scopes: restrict keys to read-only or write access per vault section",
       "New MCP Usage dashboard widget shows daily and weekly request counts at a glance",
       "Per-key request activity log lets you audit which tools are using each key",
       "UI scope selector makes it easy to configure key permissions when creating or editing keys"
@@ -27,7 +27,7 @@
     "date": "2026-01-28",
     "title": "Hosted MCP & Session-Based Auth",
     "bullets": [
-      "Context Vault now runs a hosted MCP server — connect Claude Code, Cursor, Windsurf, and Zed with one command",
+      "Context Vault now runs a hosted MCP server. Connect Claude Code, Cursor, Windsurf, and Zed with one command",
       "Authentication switched to HttpOnly session cookies for improved security",
       "Onboarding flow branches between new users and teams migrating from a local vault",
       "Import bridge syncs your local vault folder directly into the hosted vault on first sign-in"
@@ -49,7 +49,7 @@
     "date": "2025-12-20",
     "title": "Import, Search & Error States",
     "bullets": [
-      "Folder upload is now the primary import workflow — drag in your vault directory and everything syncs",
+      "Folder upload is now the primary import workflow. Drag in your vault directory and everything syncs",
       "Import promoted to a first-class sidebar route for easier discoverability",
       "Error states across the app now show actionable retry buttons and reconnect options",
       "Pre-production security hardening: logout data leak patched, webhook TOCTOU fixed, invite expiry enforced"

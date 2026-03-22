@@ -18,6 +18,10 @@ export interface Entry {
   created: Date;
   updated: Date;
   metadata?: Record<string, unknown>;
+  // Recall tracking (optional; API may not yet return these fields)
+  recallCount?: number;
+  recallSessions?: number;
+  lastRecalledAt?: Date;
 }
 
 export interface SearchResult extends Entry {
@@ -73,6 +77,10 @@ export interface ApiEntry {
   identity_key: string | null;
   expires_at: string | null;
   created_at: string;
+  // Recall tracking (optional; API may not yet return these fields)
+  recall_count?: number;
+  recall_sessions?: number;
+  last_recalled_at?: string | null;
 }
 
 export interface ApiSearchResult extends ApiEntry {
@@ -166,6 +174,11 @@ export function transformEntry(raw: ApiEntry): Entry {
     updated: new Date(raw.created_at), // backend doesn't track updated separately
     metadata:
       raw.meta && Object.keys(raw.meta).length > 0 ? raw.meta : undefined,
+    recallCount: raw.recall_count ?? undefined,
+    recallSessions: raw.recall_sessions ?? undefined,
+    lastRecalledAt: raw.last_recalled_at
+      ? new Date(raw.last_recalled_at)
+      : undefined,
   };
 }
 

@@ -14,6 +14,7 @@ import {
   ChevronLeft,
   ChevronRight,
   Loader2,
+  ArrowUpDown,
 } from "lucide-react";
 import { EntryInspector } from "../components/EntryInspector";
 import { NewEntryDialog } from "../components/NewEntryDialog";
@@ -35,6 +36,9 @@ export function Knowledge() {
   const [kindFilter, setKindFilter] = useState<string>("all");
   const [showNewEntry, setShowNewEntry] = useState(false);
   const [page, setPage] = useState(0);
+  const [sortByRecalls, setSortByRecalls] = useState<"asc" | "desc" | null>(
+    null,
+  );
 
   const { data, isLoading, isError, refetch } = useEntries({
     category: "knowledge",
@@ -48,13 +52,25 @@ export function Knowledge() {
   const totalPages = Math.ceil(total / PAGE_SIZE);
 
   // Client-side text filter on loaded page
-  const filteredEntries = searchQuery
-    ? entries.filter(
-        (entry) =>
-          entry.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
-          entry.body.toLowerCase().includes(searchQuery.toLowerCase()),
-      )
-    : entries;
+  const filteredEntries = (() => {
+    let result = searchQuery
+      ? entries.filter(
+          (entry) =>
+            entry.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
+            entry.body.toLowerCase().includes(searchQuery.toLowerCase()),
+        )
+      : [...entries];
+
+    if (sortByRecalls) {
+      result.sort((a, b) => {
+        const aCount = a.recallCount ?? 0;
+        const bCount = b.recallCount ?? 0;
+        return sortByRecalls === "desc" ? bCount - aCount : aCount - bCount;
+      });
+    }
+
+    return result;
+  })();
 
   // Reset page when filters change
   const handleSearchChange = (value: string) => {
@@ -160,6 +176,25 @@ export function Knowledge() {
                         Tags
                       </th>
                       <th className="text-right px-4 py-3 text-xs font-medium text-muted-foreground">
+                        <button
+                          className="inline-flex items-center gap-1 hover:text-foreground transition-colors"
+                          onClick={() =>
+                            setSortByRecalls((prev) =>
+                              prev === "desc"
+                                ? "asc"
+                                : prev === "asc"
+                                  ? null
+                                  : "desc",
+                            )
+                          }
+                        >
+                          Recalls
+                          <ArrowUpDown
+                            className={`size-3 ${sortByRecalls ? "text-foreground" : ""}`}
+                          />
+                        </button>
+                      </th>
+                      <th className="text-right px-4 py-3 text-xs font-medium text-muted-foreground">
                         Updated
                       </th>
                     </tr>
@@ -212,6 +247,13 @@ export function Knowledge() {
                               </Badge>
                             )}
                           </div>
+                        </td>
+                        <td className="px-4 py-3 text-right">
+                          <span className="text-xs text-muted-foreground tabular-nums">
+                            {entry.recallCount != null
+                              ? entry.recallCount
+                              : "--"}
+                          </span>
                         </td>
                         <td className="px-4 py-3 text-right">
                           <span className="text-xs text-muted-foreground">

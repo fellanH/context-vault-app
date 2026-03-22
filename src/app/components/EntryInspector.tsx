@@ -3,6 +3,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import type { Entry } from "../lib/types";
 import { useDeleteEntry, useUpdateEntry } from "../lib/hooks";
 import { ApiError } from "../lib/api";
+import { formatRelativeTime } from "../lib/format";
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "./ui/sheet";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "./ui/tabs";
 import { Button } from "./ui/button";
@@ -21,6 +22,7 @@ import {
   X,
   Loader2,
   Check,
+  RotateCcw,
 } from "lucide-react";
 import { toast } from "sonner";
 import {
@@ -522,6 +524,43 @@ export function EntryInspector({
                         </Label>
                         <div className="text-sm">
                           {liveEntry.updated.toLocaleString()}
+                        </div>
+                      </div>
+
+                      {/* Recall tracking */}
+                      <div className="space-y-1.5 rounded-md border border-border/60 p-3">
+                        <Label className="flex items-center gap-2 text-xs text-muted-foreground">
+                          <RotateCcw className="size-3" />
+                          Recall Count
+                        </Label>
+                        <div className="text-sm">
+                          {liveEntry.recallCount != null
+                            ? liveEntry.recallCount
+                            : "--"}
+                        </div>
+                      </div>
+
+                      <div className="space-y-1.5 rounded-md border border-border/60 p-3">
+                        <Label className="flex items-center gap-2 text-xs text-muted-foreground">
+                          <RotateCcw className="size-3" />
+                          Recall Sessions
+                        </Label>
+                        <div className="text-sm">
+                          {liveEntry.recallSessions != null
+                            ? liveEntry.recallSessions
+                            : "--"}
+                        </div>
+                      </div>
+
+                      <div className="space-y-1.5 rounded-md border border-border/60 p-3 sm:col-span-2">
+                        <Label className="flex items-center gap-2 text-xs text-muted-foreground">
+                          <Calendar className="size-3" />
+                          Last Recalled
+                        </Label>
+                        <div className="text-sm">
+                          {liveEntry.lastRecalledAt
+                            ? `${formatRelativeTime(liveEntry.lastRecalledAt)} (${liveEntry.lastRecalledAt.toLocaleString()})`
+                            : "Never"}
                         </div>
                       </div>
 

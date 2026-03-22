@@ -40,6 +40,7 @@ import {
   ChevronDown,
   ChevronUp,
   ScrollText,
+  RotateCcw,
 } from "lucide-react";
 import { toast } from "sonner";
 import changelogData from "../../data/changelog.json";
@@ -80,6 +81,10 @@ export function Dashboard() {
   const navigate = useNavigate();
   const { data: entriesData, isLoading: entriesLoading } = useEntries({
     limit: 10,
+  });
+  // Fetch a larger set for recall stats (API may not yet return recall fields)
+  const { data: recallData, isLoading: recallLoading } = useEntries({
+    limit: 100,
   });
   const { data: usage, isLoading: usageLoading } = useUsage();
   const { data: apiKeys } = useApiKeys();
@@ -193,6 +198,38 @@ export function Dashboard() {
         },
       ]
     : [];
+
+  // ─── Recall Stats ────────────────────────────────────────────────────────
+  const allEntries = recallData?.entries ?? [];
+  const recalledEntries = allEntries.filter((e) => (e.recallCount ?? 0) > 0);
+  const totalRecalls = recalledEntries.reduce(
+    (sum, e) => sum + (e.recallCount ?? 0),
+    0,
+  );
+  const topRecalled = recalledEntries
+    .slice()
+    .sort((a, b) => (b.recallCount ?? 0) - (a.recallCount ?? 0))
+    .slice(0, 5);
+  // API readiness: if no entries have recall data, show placeholder
+  const hasRecallData = recalledEntries.length > 0;
+
+  // Distribution buckets for the bar chart
+  const recallDistribution = (() => {
+    const buckets = [
+      { label: "0", min: 0, max: 0, count: 0 },
+      { label: "1-5", min: 1, max: 5, count: 0 },
+      { label: "6-20", min: 6, max: 20, count: 0 },
+      { label: "21-50", min: 21, max: 50, count: 0 },
+      { label: "51+", min: 51, max: Infinity, count: 0 },
+    ];
+    for (const e of allEntries) {
+      const rc = e.recallCount ?? 0;
+      const bucket = buckets.find((b) => rc >= b.min && rc <= b.max);
+      if (bucket) bucket.count++;
+    }
+    return buckets;
+  })();
+  const maxBucketCount = Math.max(...recallDistribution.map((b) => b.count), 1);
 
   const entries = entriesData?.entries ?? [];
 
@@ -641,6 +678,176 @@ export function Dashboard() {
           })}
         </div>
       )}
+
+      {/* Recall Stats */}
+      <Card>
+        <CardHeader className="pb-3">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <CardTitle className="text-base">Recall Tracking</CardTitle>
+              <RotateCcw className="size-4 text-muted-foreground" />
+            </div>
+            {!hasRecallData && !recallLoading && (
+              <Badge variant="outline" className="text-[10px]">
+                Awaiting API data
+              </Badge>
+            )}
+          </div>
+        </CardHeader>
+        <CardContent>
+          {recallLoading ? (
+            <div className="space-y-3 py-2">
+              {[1, 2, 3].map((i) => (
+                <div key={i} className="h-4 w-48 bg-muted rounded animate-pulse" />
+              ))}
+            </div>
+          ) : !hasRecallData ? (
+            <div className="space-y-4">
+              <p className="text-sm text-muted-foreground">
+                Recall tracking shows how often your entries are retrieved by AI
+                agents. Data will appear here once the API returns{" "}
+                <code className="text-xs bg-muted px-1 py-0.5 rounded">
+                  recall_count
+                </code>
+                ,{" "}
+                <code className="text-xs bg-muted px-1 py-0.5 rounded">
+                  recall_sessions
+                </code>
+                , and{" "}
+                <code className="text-xs bg-muted px-1 py-0.5 rounded">
+                  last_recalled_at
+                </code>{" "}
+                fields on entries.
+              </p>
+              <div className="grid grid-cols-3 gap-4">
+                <div className="text-center p-3 rounded-lg bg-muted/50">
+                  <p className="text-2xl font-semibold text-muted-foreground/50">
+                    --
+                  </p>
+                  <p className="text-xs text-muted-foreground mt-1">
+                    Total recalls
+                  </p>
+                </div>
+                <div className="text-center p-3 rounded-lg bg-muted/50">
+                  <p className="text-2xl font-semibold text-muted-foreground/50">
+                    --
+                  </p>
+                  <p className="text-xs text-muted-foreground mt-1">
+                    Entries recalled
+                  </p>
+                </div>
+                <div className="text-center p-3 rounded-lg bg-muted/50">
+                  <p className="text-2xl font-semibold text-muted-foreground/50">
+                    --
+                  </p>
+                  <p className="text-xs text-muted-foreground mt-1">
+                    Recall rate
+                  </p>
+                </div>
+              </div>
+            </div>
+          ) : (
+            <div className="space-y-5">
+              {/* Summary stats */}
+              <div className="grid grid-cols-3 gap-4">
+                <div className="text-center p-3 rounded-lg bg-muted/50">
+                  <p className="text-2xl font-semibold">{totalRecalls}</p>
+                  <p className="text-xs text-muted-foreground mt-1">
+                    Total recalls
+                  </p>
+                </div>
+                <div className="text-center p-3 rounded-lg bg-muted/50">
+                  <p className="text-2xl font-semibold">
+                    {recalledEntries.length}
+                  </p>
+                  <p className="text-xs text-muted-foreground mt-1">
+                    Entries recalled
+                  </p>
+                </div>
+                <div className="text-center p-3 rounded-lg bg-muted/50">
+                  <p className="text-2xl font-semibold">
+                    {allEntries.length > 0
+                      ? `${Math.round((recalledEntries.length / allEntries.length) * 100)}%`
+                      : "0%"}
+                  </p>
+                  <p className="text-xs text-muted-foreground mt-1">
+                    Recall rate
+                  </p>
+                </div>
+              </div>
+
+              {/* Distribution bar chart */}
+              <div>
+                <p className="text-xs font-medium text-muted-foreground mb-2">
+                  Recall distribution
+                </p>
+                <div className="flex items-end gap-2 h-20">
+                  {recallDistribution.map((bucket) => (
+                    <div
+                      key={bucket.label}
+                      className="flex-1 flex flex-col items-center gap-1"
+                    >
+                      <span className="text-[10px] text-muted-foreground">
+                        {bucket.count}
+                      </span>
+                      <div
+                        className="w-full bg-primary/20 rounded-t transition-all"
+                        style={{
+                          height: `${Math.max((bucket.count / maxBucketCount) * 56, 2)}px`,
+                        }}
+                      >
+                        <div
+                          className="w-full bg-primary rounded-t"
+                          style={{
+                            height: `${Math.max((bucket.count / maxBucketCount) * 56, 2)}px`,
+                          }}
+                        />
+                      </div>
+                      <span className="text-[10px] text-muted-foreground">
+                        {bucket.label}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              {/* Top recalled entries */}
+              {topRecalled.length > 0 && (
+                <div>
+                  <p className="text-xs font-medium text-muted-foreground mb-2">
+                    Most recalled entries
+                  </p>
+                  <div className="space-y-1.5">
+                    {topRecalled.map((entry) => (
+                      <div
+                        key={entry.id}
+                        className="flex items-center justify-between py-1.5 px-2 rounded hover:bg-muted/30"
+                      >
+                        <div className="flex items-center gap-2 min-w-0">
+                          <span className="text-sm truncate">{entry.title}</span>
+                          <Badge variant="secondary" className="text-[10px] shrink-0">
+                            {entry.kind}
+                          </Badge>
+                        </div>
+                        <div className="flex items-center gap-3 shrink-0 ml-3">
+                          <span className="text-sm font-medium">
+                            {entry.recallCount}
+                          </span>
+                          {entry.lastRecalledAt && (
+                            <span className="text-xs text-muted-foreground">
+                              {formatRelativeTime(entry.lastRecalledAt)}
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+        </CardContent>
+      </Card>
 
       {/* Recent Activity */}
       <Card>

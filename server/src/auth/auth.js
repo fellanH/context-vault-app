@@ -30,11 +30,19 @@ export async function createAuth(env) {
 
   const baseURL = env.API_URL || env.BETTER_AUTH_URL || "http://localhost:8787";
 
+  const appURL = env.APP_URL || "https://app.context-vault.com";
+
   const auth = betterAuth({
     database: { dialect, type: "sqlite" },
     baseURL,
     basePath: "/api/auth",
     secret: env.BETTER_AUTH_SECRET,
+
+    trustedOrigins: [
+      appURL,
+      "https://context-vault-app.pages.dev",
+      "http://localhost:5173",
+    ],
 
     emailAndPassword: {
       enabled: true,

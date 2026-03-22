@@ -51,21 +51,19 @@ app/
 ## Deploy
 
 ### Frontend
-- Auto-deploys to Vercel on push to `main`
-- Preview on push to `dev` at `context-vault-app.vercel.app`
-- Vercel project: `context-vault-app`, org: `klarhimmel`
+- Cloudflare Pages project: `context-vault-app`
 - Production domain: app.context-vault.com
+- Deploy: `npm run build && npx wrangler pages deploy dist --project-name context-vault-app --branch main`
 
 ### Backend
-- `fly deploy` from repo root (uses fly.toml + server/Dockerfile)
-- Fly app: `context-vault-api`
+- Cloudflare Workers: `context-vault-api`
 - Production domain: api.context-vault.com
-- Secrets managed via `fly secrets`
+- Deploy: `cd server && npx wrangler deploy`
+- Secrets managed via `npx wrangler secret put`
 
 ### Branch Flow
 ```
-work on dev -> push -> preview at context-vault-app.vercel.app
-  -> merge dev into main -> auto-deploys to production
+work on main -> git push -> manual deploy via wrangler
 ```
 
 ## Dependencies

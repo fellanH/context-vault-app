@@ -7,8 +7,7 @@
     "build": "vite build",
     "dev": "vite",
     "lint": "eslint src",
-    "deploy": "vercel --prod",
-    "fly:deploy": "fly deploy"
+    "deploy": "npm run build && npx wrangler pages deploy dist --project-name context-vault-app --branch main --commit-dirty=true"
   },
   "dependencies": {
     "@better-auth/api-key": "^1.5.5",

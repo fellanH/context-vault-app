@@ -1,57 +1,50 @@
 /**
- * auth.js — better-auth instance for the hosted server.
+ * auth.js -- better-auth instance for Cloudflare Workers.
  *
- * Configures:
- *   - Email/password + GitHub social login
- *   - Organization plugin (teams, invites, roles)
- *   - API key plugin (key generation, scoping, verification)
+ * Uses Kysely with @libsql/kysely-libsql dialect to connect to Turso.
+ * Configures email/password + GitHub social login.
+ * Organization and API key plugins enabled.
  *
- * Uses better-sqlite3 for a dedicated auth database.
- * Mounted on Hono at /api/auth/*.
+ * The auth instance is created per-request since Workers are stateless.
+ * Schema migrations run lazily on first request.
  */
 
 import { betterAuth } from "better-auth";
 import { organization } from "better-auth/plugins";
 import { apiKey } from "@better-auth/api-key";
-import Database from "better-sqlite3";
-import { join } from "node:path";
-import { mkdirSync } from "node:fs";
+import { LibsqlDialect } from "@libsql/kysely-libsql";
+
+let migrationDone = false;
 
 /**
- * Create and initialize the better-auth instance.
- * Runs schema migrations on first call (creates tables if needed).
+ * Create the better-auth instance for a Workers request.
  *
- * @param {string} dataDir - Data directory (from resolved config)
+ * @param {object} env - Workers env bindings
  * @returns {Promise<ReturnType<typeof betterAuth>>}
  */
-export async function createAuth(dataDir) {
-  mkdirSync(dataDir, { recursive: true });
-  const authDbPath = join(dataDir, "auth.db");
+export async function createAuth(env) {
+  const dialect = new LibsqlDialect({
+    url: env.TURSO_URL,
+    authToken: env.TURSO_AUTH_TOKEN,
+  });
 
-  const db = new Database(authDbPath);
-  db.pragma("journal_mode = WAL");
-  db.pragma("foreign_keys = ON");
-
-  const baseURL =
-    process.env.BETTER_AUTH_URL ||
-    process.env.API_URL ||
-    "http://localhost:3000";
+  const baseURL = env.API_URL || env.BETTER_AUTH_URL || "http://localhost:8787";
 
   const auth = betterAuth({
-    database: db,
+    database: { dialect, type: "sqlite" },
     baseURL,
     basePath: "/api/auth",
-    secret: process.env.BETTER_AUTH_SECRET || process.env.SESSION_SECRET,
+    secret: env.BETTER_AUTH_SECRET,
 
     emailAndPassword: {
       enabled: true,
     },
 
     socialProviders: {
-      ...(process.env.GITHUB_CLIENT_ID && {
+      ...(env.GITHUB_CLIENT_ID && {
         github: {
-          clientId: process.env.GITHUB_CLIENT_ID,
-          clientSecret: process.env.GITHUB_CLIENT_SECRET,
+          clientId: env.GITHUB_CLIENT_ID,
+          clientSecret: env.GITHUB_CLIENT_SECRET,
         },
       }),
     },
@@ -59,7 +52,7 @@ export async function createAuth(dataDir) {
     session: {
       cookieCache: {
         enabled: true,
-        maxAge: 5 * 60, // 5 minutes
+        maxAge: 5 * 60,
       },
     },
 
@@ -79,36 +72,33 @@ export async function createAuth(dataDir) {
 
     plugins: [
       organization({
-        // Team size limits per pricing tier
         membershipLimit: 50,
-        // Invitations expire after 7 days
         invitationExpiresIn: 7 * 24 * 60 * 60,
-        // Allow all authenticated users to create orgs (tier checks in UI)
         allowUserToCreateOrganization: true,
       }),
-
       apiKey(),
     ],
-
-    advanced: {
-      // Use defaults for ID generation
-    },
   });
 
-  // Run schema migrations (creates tables on first run, adds columns on upgrade)
-  const { getMigrations } = await import("better-auth/db/migration");
-  const { toBeCreated, toBeAdded, runMigrations } = await getMigrations(
-    auth.options,
-  );
-  if (toBeCreated.length > 0 || toBeAdded.length > 0) {
-    console.log(
-      `[auth] Running migrations: ${toBeCreated.length} tables to create, ${toBeAdded.length} columns to add`,
-    );
-    await runMigrations();
-    console.log("[auth] Migrations complete");
+  // Run schema migrations lazily (once per Worker instance)
+  if (!migrationDone) {
+    try {
+      const { getMigrations } = await import("better-auth/db/migration");
+      const { toBeCreated, toBeAdded, runMigrations } = await getMigrations(
+        auth.options,
+      );
+      if (toBeCreated.length > 0 || toBeAdded.length > 0) {
+        console.log(
+          `[auth] Migrating: ${toBeCreated.length} tables, ${toBeAdded.length} columns`,
+        );
+        await runMigrations();
+      }
+      migrationDone = true;
+    } catch (e) {
+      console.error("[auth] Migration error:", e.message);
+      migrationDone = true;
+    }
   }
-
-  console.log(`[auth] better-auth initialized (db: ${authDbPath})`);
 
   return auth;
 }

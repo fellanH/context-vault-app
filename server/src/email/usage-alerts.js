@@ -8,45 +8,17 @@
  *   - 100% of storageMb used (limit hit)
  *
  * Dedup: no more than 1 alert email per threshold per rolling 24h.
- * Uses the existing meta.db `rate_limits` table with namespaced keys.
+ * Uses the Turso `rate_limits` table with namespaced keys.
  *
- * Requires environment variables:
- *   RESEND_API_KEY   — Resend API key
- *   RESEND_FROM      — Sender address (e.g. "Context Vault <alerts@context-vault.com>")
- *   APP_URL          — Base URL for upgrade link (default: https://app.context-vault.com)
+ * Cloudflare Workers compatible:
+ *   - No process.env — env vars passed as parameters from callers
+ *   - No getMetaDb() — Turso client passed as db parameter
+ *   - Resend loaded dynamically per invocation (no module-level singleton)
  */
 
-import { getMetaDb } from "../auth/meta-db.js";
 import { getTierLimits } from "../billing/stripe.js";
 
-// ─── Resend client (loaded once at module init) ───────────────────────────────
-
-let ResendClass = null;
-try {
-  const mod = await import("resend");
-  ResendClass = mod.Resend;
-} catch {
-  // Resend package not available — alerts will be silently skipped
-}
-
-let _resendClient = null;
-
-/**
- * Get (or lazily create) the Resend client.
- * Returns null when RESEND_API_KEY is not set or Resend is unavailable.
- *
- * @returns {import("resend").Resend | null}
- */
-function getClient() {
-  if (!ResendClass) return null;
-  const key = process.env.RESEND_API_KEY;
-  if (!key) return null;
-  if (_resendClient) return _resendClient;
-  _resendClient = new ResendClass(key);
-  return _resendClient;
-}
-
-// ─── Dedup (rate_limits table) ────────────────────────────────────────────────
+// ─── Dedup (rate_limits table via Turso) ──────────────────────────────────────
 
 const ALERT_WINDOW_HOURS = 24;
 
@@ -57,21 +29,24 @@ const ALERT_WINDOW_HOURS = 24;
  * Uses the `rate_limits` table with a namespaced key:
  *   alert:<userId>:<limitType>:<threshold>
  *
- * @param {import("better-sqlite3").Database} db
+ * @param {import("@libsql/client").Client} db - Turso client
  * @param {string} userId
  * @param {"requests"|"storage"} limitType
  * @param {80|100} threshold
- * @returns {boolean} true if the alert should be sent (not yet deduped)
+ * @returns {Promise<boolean>} true if the alert should be sent (not yet deduped)
  */
-function shouldSendAlert(db, userId, limitType, threshold) {
+async function shouldSendAlert(db, userId, limitType, threshold) {
   const key = `alert:${userId}:${limitType}:${threshold}`;
 
-  const row = db
-    .prepare(`SELECT count, window_start FROM rate_limits WHERE key = ?`)
-    .get(key);
+  const result = await db.execute({
+    sql: `SELECT count, window_start FROM rate_limits WHERE key = ?`,
+    args: [key],
+  });
+
+  const row = result.rows[0] ?? null;
 
   if (row) {
-    // SQLite stores datetime('now') as "YYYY-MM-DD HH:MM:SS" in UTC (no Z suffix)
+    // Turso stores datetime('now') as "YYYY-MM-DD HH:MM:SS" in UTC (no Z suffix)
     const windowStart = new Date(row.window_start + "Z");
     const windowExpiry = new Date(
       windowStart.getTime() + ALERT_WINDOW_HOURS * 60 * 60 * 1000,
@@ -82,34 +57,31 @@ function shouldSendAlert(db, userId, limitType, threshold) {
   }
 
   // Record the send, resetting the window
-  db.prepare(
-    `
-    INSERT INTO rate_limits (key, count, window_start)
-    VALUES (?, 1, datetime('now'))
-    ON CONFLICT(key) DO UPDATE SET
-      count        = 1,
-      window_start = datetime('now')
-  `,
-  ).run(key);
+  await db.execute({
+    sql: `
+      INSERT INTO rate_limits (key, count, window_start)
+      VALUES (?, 1, datetime('now'))
+      ON CONFLICT(key) DO UPDATE SET
+        count        = 1,
+        window_start = datetime('now')
+    `,
+    args: [key],
+  });
 
   return true;
 }
 
 // ─── Email templates ──────────────────────────────────────────────────────────
 
-const APP_URL = process.env.APP_URL || "https://app.context-vault.com";
-const BILLING_URL = `${APP_URL}/settings/billing`;
-const FROM =
-  process.env.RESEND_FROM || "Context Vault <alerts@context-vault.com>";
-
 /**
  * Build the email content for a given alert type.
  *
  * @param {"requests_80"|"requests_100"|"storage_80"|"storage_100"} alertType
  * @param {{ current: number, limit: number }} usage
+ * @param {string} billingUrl
  * @returns {{ subject: string, text: string, html: string }}
  */
-function buildEmail(alertType, usage) {
+function buildEmail(alertType, usage, billingUrl) {
   const isRequests = alertType.startsWith("requests");
   const isHit = alertType.includes("100");
   const pct = isHit ? "100%" : "80%";
@@ -141,7 +113,7 @@ function buildEmail(alertType, usage) {
     "",
     bodyText,
     "",
-    `Upgrade now: ${BILLING_URL}`,
+    `Upgrade now: ${billingUrl}`,
     "",
     "--",
     "You're receiving this because you have a free Context Vault account.",
@@ -154,7 +126,7 @@ function buildEmail(alertType, usage) {
   <h2 style="font-size:20px;margin-bottom:8px">${headlineText}</h2>
   <p style="color:#555;margin-top:0">${usageLabel}</p>
   <p>${bodyText}</p>
-  <a href="${BILLING_URL}"
+  <a href="${billingUrl}"
      style="display:inline-block;margin-top:8px;padding:12px 24px;background:#0070f3;color:#fff;text-decoration:none;border-radius:6px;font-weight:600">
     Upgrade to Pro
   </a>
@@ -181,28 +153,30 @@ function buildEmail(alertType, usage) {
  * @param {string} opts.userId
  * @param {string} opts.email
  * @param {string} opts.tier
- * @param {number} opts.requestsToday    — Current count of requests used today
- * @param {number} opts.storageMbUsed    — Current storage in MB
+ * @param {number} opts.requestsToday    - Current count of requests used today
+ * @param {number} opts.storageMbUsed    - Current storage in MB
+ * @param {import("@libsql/client").Client} db - Turso client
+ * @param {object} env - Workers env bindings (RESEND_API_KEY, RESEND_FROM, APP_URL)
  */
-export async function checkAndSendUsageAlerts({
-  userId,
-  email,
-  tier,
-  requestsToday,
-  storageMbUsed,
-}) {
+export async function checkAndSendUsageAlerts(
+  { userId, email, tier, requestsToday, storageMbUsed },
+  db,
+  env,
+) {
   try {
     const limits = getTierLimits(tier);
-    const db = getMetaDb();
-    const client = getClient();
-
     const alerts = computeAlerts(requestsToday, storageMbUsed, limits);
     if (alerts.length === 0) return;
 
-    if (!client) {
+    const resendApiKey = env?.RESEND_API_KEY;
+    const appUrl = env?.APP_URL || "https://app.context-vault.com";
+    const from = env?.RESEND_FROM || "Context Vault <alerts@context-vault.com>";
+    const billingUrl = `${appUrl}/settings/billing`;
+
+    if (!resendApiKey) {
       // Resend not configured — log intent for observability
       for (const alert of alerts) {
-        if (shouldSendAlert(db, userId, alert.limitType, alert.threshold)) {
+        if (await shouldSendAlert(db, userId, alert.limitType, alert.threshold)) {
           console.log(
             `[usage-alerts] Would send ${alert.type} alert to ${email} (RESEND_API_KEY not set)`,
           );
@@ -211,16 +185,27 @@ export async function checkAndSendUsageAlerts({
       return;
     }
 
+    // Lazily import Resend (dynamic import works in Workers)
+    let ResendClass = null;
+    try {
+      const mod = await import("resend");
+      ResendClass = mod.Resend;
+    } catch {
+      console.error("[usage-alerts] resend package not available");
+      return;
+    }
+    const client = new ResendClass(resendApiKey);
+
     for (const alert of alerts) {
-      if (!shouldSendAlert(db, userId, alert.limitType, alert.threshold)) {
+      if (!(await shouldSendAlert(db, userId, alert.limitType, alert.threshold))) {
         continue; // Already sent within 24h — skip
       }
 
-      const { subject, text, html } = buildEmail(alert.type, alert.usage);
+      const { subject, text, html } = buildEmail(alert.type, alert.usage, billingUrl);
 
       try {
         await client.emails.send({
-          from: FROM,
+          from,
           to: email,
           subject,
           text,
@@ -232,9 +217,10 @@ export async function checkAndSendUsageAlerts({
       } catch (err) {
         // Roll back the dedup record so we retry on the next request
         try {
-          db.prepare(`DELETE FROM rate_limits WHERE key = ?`).run(
-            `alert:${userId}:${alert.limitType}:${alert.threshold}`,
-          );
+          await db.execute({
+            sql: `DELETE FROM rate_limits WHERE key = ?`,
+            args: [`alert:${userId}:${alert.limitType}:${alert.threshold}`],
+          });
         } catch {}
         console.error(
           `[usage-alerts] Failed to send ${alert.type} alert to ${email}: ${err.message}`,

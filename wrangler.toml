@@ -1,0 +1,49 @@
+name = "context-vault-api"
+main = "server/src/index.js"
+compatibility_date = "2025-04-01"
+compatibility_flags = ["nodejs_compat_v2"]
+
+[observability]
+enabled = true
+
+[vars]
+AUTH_REQUIRED = "true"
+APP_URL = "https://app.context-vault.com"
+API_URL = "https://api.context-vault.com"
+CORS_ORIGIN = "https://app.context-vault.com,https://context-vault-app.vercel.app"
+
+[[r2_buckets]]
+binding = "R2_PRIVATE"
+bucket_name = "cv-private"
+
+[[r2_buckets]]
+binding = "R2_TEAMS"
+bucket_name = "cv-teams"
+
+[[r2_buckets]]
+binding = "R2_PUBLIC"
+bucket_name = "cv-public"
+
+[ai]
+binding = "AI"
+
+# Secrets (set via `wrangler secret put <NAME>`):
+# TURSO_URL              - libsql://your-db.turso.io
+# TURSO_AUTH_TOKEN        - Turso auth token
+# BETTER_AUTH_SECRET      - 32+ char secret for session signing
+# GITHUB_CLIENT_ID        - GitHub OAuth app client ID
+# GITHUB_CLIENT_SECRET    - GitHub OAuth app secret
+# STRIPE_SECRET_KEY       - Stripe API key
+# STRIPE_WEBHOOK_SECRET   - Stripe webhook signing secret
+# STRIPE_PRICE_PRO        - Stripe price ID for Pro plan
+# STRIPE_PRICE_PRO_ANNUAL - Stripe price ID for Pro annual plan
+# RESEND_API_KEY          - Resend email API key
+# VAULT_MASTER_SECRET     - Master encryption key (16+ chars)
+
+[env.dev]
+name = "context-vault-api-dev"
+[env.dev.vars]
+AUTH_REQUIRED = "false"
+APP_URL = "http://localhost:5173"
+API_URL = "http://localhost:8787"
+CORS_ORIGIN = "http://localhost:5173"

@@ -19,6 +19,7 @@ import { AgentRules } from "./pages/settings/AgentRules";
 import { TeamCreate } from "./pages/team/Create";
 import { TeamDashboard } from "./pages/team/Dashboard";
 import { TeamInvite } from "./pages/team/Invite";
+import { TeamVault } from "./pages/team/Vault";
 import { Changelog } from "./pages/Changelog";
 
 export const router = createBrowserRouter([
@@ -39,6 +40,7 @@ export const router = createBrowserRouter([
       { path: "vault/events", Component: Events },
       { path: "team/new", Component: TeamCreate },
       { path: "team/:id", Component: TeamDashboard },
+      { path: "team/:id/vault", Component: TeamVault },
       { path: "team/invite", Component: TeamInvite },
       { path: "settings/api-keys", Component: ApiKeys },
       { path: "settings/billing", Component: Billing },

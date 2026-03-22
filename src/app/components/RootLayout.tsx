@@ -19,6 +19,7 @@ import {
   Plus,
   ScrollText,
   BookOpen,
+  Layers,
 } from "lucide-react";
 import { useTheme } from "next-themes";
 import { Button } from "./ui/button";
@@ -60,6 +61,7 @@ const settingsItems: NavItem[] = [
 function getPageTitle(pathname: string): string {
   if (pathname === "/team/new") return "Create Team";
   if (pathname.startsWith("/team/invite")) return "Team Invite";
+  if (pathname.match(/^\/team\/[^/]+\/vault$/)) return "Team Vault";
   if (pathname.startsWith("/team/")) return "Team";
   if (pathname === "/import") return "Import";
   if (pathname === "/changelog") return "What's New";
@@ -167,18 +169,36 @@ export function RootLayout() {
               Teams
             </div>
             {teams?.map((team) => (
-              <Button
-                key={team.id}
-                variant={isActive(`/team/${team.id}`) ? "secondary" : "ghost"}
-                className="w-full justify-start text-sm"
-                size="sm"
-                asChild
-              >
-                <Link to={`/team/${team.id}`}>
-                  <Users className="size-4 mr-2" />
-                  {team.name}
-                </Link>
-              </Button>
+              <div key={team.id} className="space-y-0.5">
+                <Button
+                  variant={
+                    location.pathname === `/team/${team.id}`
+                      ? "secondary"
+                      : "ghost"
+                  }
+                  className="w-full justify-start text-sm"
+                  size="sm"
+                  asChild
+                >
+                  <Link to={`/team/${team.id}`}>
+                    <Users className="size-4 mr-2" />
+                    {team.name}
+                  </Link>
+                </Button>
+                <Button
+                  variant={
+                    isActive(`/team/${team.id}/vault`) ? "secondary" : "ghost"
+                  }
+                  className="w-full justify-start text-sm pl-8 text-muted-foreground"
+                  size="sm"
+                  asChild
+                >
+                  <Link to={`/team/${team.id}/vault`}>
+                    <Layers className="size-3.5 mr-2" />
+                    Vault
+                  </Link>
+                </Button>
+              </div>
             ))}
             <Button
               variant={isActive("/team/new") ? "secondary" : "ghost"}

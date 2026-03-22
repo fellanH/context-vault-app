@@ -560,3 +560,114 @@ export function useRemoveMember() {
     },
   });
 }
+
+// ─── Team Vault ─────────────────────────────────────────────────────────────
+
+interface UseTeamEntriesOpts {
+  teamId: string | null;
+  category?: Category;
+  kind?: string;
+  offset?: number;
+  limit?: number;
+}
+
+export function useTeamEntries({
+  teamId,
+  category,
+  kind,
+  offset = 0,
+  limit = 20,
+}: UseTeamEntriesOpts) {
+  return useQuery({
+    queryKey: ["teamEntries", teamId, { category, kind, offset, limit }],
+    queryFn: async () => {
+      const params = new URLSearchParams();
+      if (category) params.set("category", category);
+      if (kind && kind !== "all") params.set("kind", kind);
+      params.set("offset", String(offset));
+      params.set("limit", String(limit));
+
+      const raw = await api.get<{ entries: ApiEntry[]; total: number }>(
+        `/team/${teamId}/entries?${params}`,
+      );
+      return {
+        entries: raw.entries.map(transformEntry),
+        total: raw.total,
+      };
+    },
+    enabled: !!teamId,
+  });
+}
+
+interface TeamSearchOpts {
+  teamId: string;
+  query: string;
+  category?: string;
+  kind?: string;
+  limit?: number;
+}
+
+export function useTeamSearch() {
+  return useMutation({
+    mutationFn: async ({ teamId, query, category, kind, limit }: TeamSearchOpts) => {
+      const body: Record<string, unknown> = {
+        query,
+        limit: limit || 20,
+      };
+      if (category && category !== "all") body.category = category;
+      if (kind && kind !== "all") body.kind = kind;
+
+      const raw = await api.post<{
+        results: ApiSearchResult[];
+        count: number;
+        query: string;
+      }>(`/team/${teamId}/search`, body);
+      return {
+        results: raw.results.map(transformSearchResult),
+        count: raw.count,
+        query: raw.query,
+      };
+    },
+  });
+}
+
+interface TeamVaultStatus {
+  team_id: string;
+  entries: {
+    total: number;
+    by_kind: Record<string, number>;
+    by_category: Record<string, number>;
+  };
+  health: "ok" | "degraded";
+  errors: string[];
+}
+
+export function useTeamVaultStatus(teamId: string | null) {
+  return useQuery({
+    queryKey: ["teamVaultStatus", teamId],
+    queryFn: () => api.get<TeamVaultStatus>(`/team/${teamId}/status`),
+    enabled: !!teamId,
+  });
+}
+
+export function usePublishEntry() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async ({
+      entryId,
+      teamId,
+    }: {
+      entryId: string;
+      teamId: string;
+    }) => {
+      return api.post<{ published: boolean; sourceId: string; entry: ApiEntry }>(
+        "/vault/publish",
+        { entryId, visibility: "team", teamId },
+      );
+    },
+    onSuccess: (_data, vars) => {
+      qc.invalidateQueries({ queryKey: ["teamEntries", vars.teamId] });
+      qc.invalidateQueries({ queryKey: ["teamVaultStatus", vars.teamId] });
+    },
+  });
+}

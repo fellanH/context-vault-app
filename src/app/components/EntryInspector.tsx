@@ -1,7 +1,7 @@
 import { useState, useEffect } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import type { Entry } from "../lib/types";
-import { useDeleteEntry, useUpdateEntry } from "../lib/hooks";
+import { useDeleteEntry, useUpdateEntry, useTeams, usePublishEntry } from "../lib/hooks";
 import { ApiError } from "../lib/api";
 import { formatRelativeTime } from "../lib/format";
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "./ui/sheet";
@@ -23,6 +23,9 @@ import {
   Loader2,
   Check,
   RotateCcw,
+  Eye,
+  Share2,
+  Users,
 } from "lucide-react";
 import { toast } from "sonner";
 import {
@@ -35,9 +38,16 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "./ui/alert-dialog";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "./ui/dropdown-menu";
 import { Input } from "./ui/input";
 import { Label } from "./ui/label";
 import { Textarea } from "./ui/textarea";
+import { VisibilityBadge } from "./VisibilityBadge";
 
 interface EntryInspectorProps {
   entry: Entry | null;
@@ -66,6 +76,8 @@ export function EntryInspector({
 
   const deleteEntry = useDeleteEntry();
   const updateEntry = useUpdateEntry();
+  const publishEntry = usePublishEntry();
+  const { data: teams } = useTeams();
   const qc = useQueryClient();
 
   // Reset local state when a different entry is opened (getDerivedStateFromProps pattern)
@@ -504,6 +516,19 @@ export function EntryInspector({
                           >
                             {liveEntry.kind}
                           </Badge>
+                        </div>
+                      </div>
+
+                      <div className="space-y-1.5 rounded-md border border-border/60 p-3">
+                        <Label className="flex items-center gap-2 text-xs text-muted-foreground">
+                          <Eye className="size-3" />
+                          Visibility
+                        </Label>
+                        <div>
+                          <VisibilityBadge
+                            visibility={liveEntry.visibility}
+                            teamName={liveEntry.teamName}
+                          />
                         </div>
                       </div>
 

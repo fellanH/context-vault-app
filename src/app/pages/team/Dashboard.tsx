@@ -15,11 +15,14 @@ import {
   UserPlus,
   Trash2,
   Loader2,
+  Database,
+  ArrowRight,
 } from "lucide-react";
 import {
   useTeam,
   useInviteMember,
   useRemoveMember,
+  useTeamVaultStatus,
 } from "../../lib/hooks";
 import { useAuth } from "../../lib/auth";
 import { toast } from "sonner";
@@ -32,6 +35,7 @@ export function TeamDashboard() {
   const { data: team, isLoading } = useTeam(id || null);
   const inviteMember = useInviteMember();
   const removeMember = useRemoveMember();
+  const { data: vaultStatus } = useTeamVaultStatus(id || null);
 
   const [inviteEmail, setInviteEmail] = useState("");
   const [showInvite, setShowInvite] = useState(false);
@@ -166,6 +170,32 @@ export function TeamDashboard() {
           </CardHeader>
           <CardContent>
             <span className="text-2xl font-semibold">{team.members.length}</span>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardHeader className="pb-2">
+            <div className="flex items-center justify-between">
+              <CardTitle className="text-xs font-medium text-muted-foreground">
+                Vault Entries
+              </CardTitle>
+              <Database className="size-4 text-muted-foreground" />
+            </div>
+          </CardHeader>
+          <CardContent>
+            <span className="text-2xl font-semibold">
+              {vaultStatus?.entries.total ?? 0}
+            </span>
+          </CardContent>
+        </Card>
+        <Card className="flex flex-col justify-center">
+          <CardContent className="pt-6">
+            <Link to={`/team/${id}/vault`}>
+              <Button variant="outline" className="w-full">
+                <Database className="size-4 mr-2" />
+                Browse Team Vault
+                <ArrowRight className="size-4 ml-auto" />
+              </Button>
+            </Link>
           </CardContent>
         </Card>
       </div>

@@ -7,6 +7,8 @@ export type BillingTier = "free" | "pro" | "team";
 
 // ─── Frontend types (used by components) ─────────────────────────────────────
 
+export type EntryVisibility = "private" | "team" | "public";
+
 export interface Entry {
   id: string;
   category: Category;
@@ -22,6 +24,10 @@ export interface Entry {
   recallCount?: number;
   recallSessions?: number;
   lastRecalledAt?: Date;
+  // Visibility / team sharing
+  teamId?: string;
+  teamName?: string;
+  visibility: EntryVisibility;
 }
 
 export interface SearchResult extends Entry {
@@ -81,6 +87,10 @@ export interface ApiEntry {
   recall_count?: number;
   recall_sessions?: number;
   last_recalled_at?: string | null;
+  // Visibility / team sharing
+  team_id?: string | null;
+  team_name?: string | null;
+  is_public?: boolean;
 }
 
 export interface ApiSearchResult extends ApiEntry {
@@ -162,6 +172,12 @@ export interface ApiUserResponse {
 // ─── Transformers ────────────────────────────────────────────────────────────
 
 export function transformEntry(raw: ApiEntry): Entry {
+  const visibility: EntryVisibility = raw.is_public
+    ? "public"
+    : raw.team_id
+      ? "team"
+      : "private";
+
   return {
     id: raw.id,
     category: raw.category as Category,
@@ -179,6 +195,9 @@ export function transformEntry(raw: ApiEntry): Entry {
     lastRecalledAt: raw.last_recalled_at
       ? new Date(raw.last_recalled_at)
       : undefined,
+    teamId: raw.team_id || undefined,
+    teamName: raw.team_name || undefined,
+    visibility,
   };
 }
 

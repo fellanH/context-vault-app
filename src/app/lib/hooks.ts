@@ -658,14 +658,35 @@ export function usePublishEntry() {
     mutationFn: async ({
       entryId,
       teamId,
+      force,
     }: {
       entryId: string;
       teamId: string;
+      force?: boolean;
     }) => {
       return api.post<{ published: boolean; sourceId: string; entry: ApiEntry }>(
         "/vault/publish",
-        { entryId, visibility: "team", teamId },
+        { entryId, visibility: "team", teamId, ...(force ? { force: true } : {}) },
       );
+    },
+    onSuccess: (_data, vars) => {
+      qc.invalidateQueries({ queryKey: ["teamEntries", vars.teamId] });
+      qc.invalidateQueries({ queryKey: ["teamVaultStatus", vars.teamId] });
+    },
+  });
+}
+
+export function useUnpublishEntry() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async ({
+      teamId,
+      entryId,
+    }: {
+      teamId: string;
+      entryId: string;
+    }) => {
+      return api.del<{ deleted: boolean }>(`/team/${teamId}/entries/${entryId}`);
     },
     onSuccess: (_data, vars) => {
       qc.invalidateQueries({ queryKey: ["teamEntries", vars.teamId] });

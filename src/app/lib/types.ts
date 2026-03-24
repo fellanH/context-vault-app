@@ -28,6 +28,9 @@ export interface Entry {
   teamId?: string;
   teamName?: string;
   visibility: EntryVisibility;
+  // Publisher info (team entries)
+  userId?: string;
+  userName?: string;
 }
 
 export interface SearchResult extends Entry {
@@ -93,6 +96,9 @@ export interface ApiEntry {
   team_id?: string | null;
   team_name?: string | null;
   is_public?: boolean;
+  // Publisher info (team entries)
+  user_id?: string | null;
+  user_name?: string | null;
 }
 
 export interface ApiSearchResult extends ApiEntry {
@@ -200,6 +206,8 @@ export function transformEntry(raw: ApiEntry): Entry {
     teamId: raw.team_id || undefined,
     teamName: raw.team_name || undefined,
     visibility,
+    userId: raw.user_id || undefined,
+    userName: raw.user_name || undefined,
   };
 }
 

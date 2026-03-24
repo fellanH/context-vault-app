@@ -1,12 +1,25 @@
 import { useState } from "react";
 import { useParams, Link } from "react-router";
 import type { Entry, SearchResult } from "../../lib/types";
-import { useTeamEntries, useTeamSearch, useTeamVaultStatus } from "../../lib/hooks";
+import {
+  useTeamEntries,
+  useTeamSearch,
+  useTeamVaultStatus,
+  useUnpublishEntry,
+  useTeam,
+} from "../../lib/hooks";
+import { useAuth } from "../../lib/auth";
 import { formatRelativeTime } from "../../lib/format";
 import { Badge } from "../../components/ui/badge";
 import { Button } from "../../components/ui/button";
 import { Input } from "../../components/ui/input";
 import { Skeleton } from "../../components/ui/skeleton";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "../../components/ui/tooltip";
 import {
   Card,
   CardContent,
@@ -21,6 +34,16 @@ import {
   SelectValue,
 } from "../../components/ui/select";
 import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "../../components/ui/alert-dialog";
+import {
   Search,
   FileText,
   ChevronLeft,
@@ -29,21 +52,74 @@ import {
   ArrowLeft,
   Database,
   Layers,
+  Trash2,
+  Flame,
+  Upload,
 } from "lucide-react";
 import { EntryInspector } from "../../components/EntryInspector";
 import { EmptyState } from "../../components/EmptyState";
 import { ErrorState } from "../../components/ErrorState";
+import { toast } from "sonner";
 
 const PAGE_SIZE = 10;
 
+function RecallHeat({ count }: { count?: number }) {
+  if (!count) return null;
+  const intensity =
+    count >= 10 ? "text-orange-500" : count >= 3 ? "text-amber-500" : "text-muted-foreground";
+  return (
+    <TooltipProvider>
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <span className={`inline-flex items-center gap-0.5 text-xs tabular-nums ${intensity}`}>
+            <Flame className="size-3" />
+            {count}
+          </span>
+        </TooltipTrigger>
+        <TooltipContent>
+          <p>Recalled {count} time{count !== 1 ? "s" : ""}</p>
+        </TooltipContent>
+      </Tooltip>
+    </TooltipProvider>
+  );
+}
+
+function AuthorBadge({ entry }: { entry: Entry }) {
+  const isSeeded = entry.source?.startsWith("published:");
+  const name = entry.userName || "Unknown";
+  return (
+    <TooltipProvider>
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <span className="inline-flex items-center gap-1 text-xs text-muted-foreground">
+            {isSeeded && <Upload className="size-3" />}
+            <span className="size-5 rounded-full bg-primary/10 text-primary flex items-center justify-center text-[10px] font-medium shrink-0">
+              {name[0].toUpperCase()}
+            </span>
+            <span className="truncate max-w-[80px]">{name}</span>
+          </span>
+        </TooltipTrigger>
+        <TooltipContent>
+          <p>{isSeeded ? `Published by ${name}` : `Created by ${name}`}</p>
+        </TooltipContent>
+      </Tooltip>
+    </TooltipProvider>
+  );
+}
+
 export function TeamVault() {
   const { id: teamId } = useParams<{ id: string }>();
+  const { user } = useAuth();
+  const { data: team } = useTeam(teamId || null);
   const [selectedEntry, setSelectedEntry] = useState<Entry | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
   const [searchInput, setSearchInput] = useState("");
   const [kindFilter, setKindFilter] = useState<string>("all");
   const [page, setPage] = useState(0);
   const [isSearchMode, setIsSearchMode] = useState(false);
+  const [unpublishTarget, setUnpublishTarget] = useState<Entry | null>(null);
+
+  const isOwnerOrAdmin = team?.role === "owner" || team?.role === "admin";
 
   const {
     data: statusData,
@@ -63,6 +139,7 @@ export function TeamVault() {
   });
 
   const searchMutation = useTeamSearch();
+  const unpublishEntry = useUnpublishEntry();
 
   const entries = entriesData?.entries ?? [];
   const total = entriesData?.total ?? 0;
@@ -104,6 +181,29 @@ export function TeamVault() {
       });
     }
   };
+
+  const handleUnpublish = () => {
+    if (!unpublishTarget || !teamId) return;
+    const entryTitle = unpublishTarget.title;
+    unpublishEntry.mutate(
+      { teamId, entryId: unpublishTarget.id },
+      {
+        onSuccess: () => {
+          toast.success(`Unpublished "${entryTitle}"`);
+          setUnpublishTarget(null);
+        },
+        onError: (err) => {
+          toast.error("Failed to unpublish", {
+            description: err instanceof Error ? err.message : "Unknown error",
+          });
+          setUnpublishTarget(null);
+        },
+      },
+    );
+  };
+
+  const canUnpublish = (entry: Entry) =>
+    isOwnerOrAdmin || (user?.id && entry.userId === user.id);
 
   const searchResults = searchMutation.data?.results ?? [];
   const displayEntries: (Entry | SearchResult)[] = isSearchMode
@@ -246,12 +346,15 @@ export function TeamVault() {
                 </p>
               )}
 
-              <div className="border border-border rounded-lg overflow-hidden bg-card">
-                <table className="w-full">
+              <div className="border border-border rounded-lg overflow-x-auto bg-card">
+                <table className="w-full min-w-[800px]">
                   <thead>
                     <tr className="border-b border-border bg-muted/50">
                       <th className="text-left px-4 py-3 text-xs font-medium text-muted-foreground">
                         Title
+                      </th>
+                      <th className="text-left px-4 py-3 text-xs font-medium text-muted-foreground">
+                        Author
                       </th>
                       <th className="text-left px-4 py-3 text-xs font-medium text-muted-foreground">
                         Kind
@@ -265,7 +368,12 @@ export function TeamVault() {
                         </th>
                       )}
                       <th className="text-right px-4 py-3 text-xs font-medium text-muted-foreground">
+                        Recall
+                      </th>
+                      <th className="text-right px-4 py-3 text-xs font-medium text-muted-foreground">
                         Created
+                      </th>
+                      <th className="text-right px-4 py-3 text-xs font-medium text-muted-foreground w-10">
                       </th>
                     </tr>
                   </thead>
@@ -289,6 +397,9 @@ export function TeamVault() {
                           <span className="text-sm font-medium">
                             {entry.title}
                           </span>
+                        </td>
+                        <td className="px-4 py-3">
+                          <AuthorBadge entry={entry} />
                         </td>
                         <td className="px-4 py-3">
                           <Badge variant="default" className="text-xs">
@@ -323,9 +434,28 @@ export function TeamVault() {
                           </td>
                         )}
                         <td className="px-4 py-3 text-right">
+                          <RecallHeat count={entry.recallCount} />
+                        </td>
+                        <td className="px-4 py-3 text-right">
                           <span className="text-xs text-muted-foreground">
                             {formatRelativeTime(entry.created)}
                           </span>
+                        </td>
+                        <td className="px-4 py-3 text-right">
+                          {canUnpublish(entry) && (
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              className="size-7 text-muted-foreground hover:text-destructive"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setUnpublishTarget(entry);
+                              }}
+                              aria-label="Unpublish entry"
+                            >
+                              <Trash2 className="size-3.5" />
+                            </Button>
+                          )}
                         </td>
                       </tr>
                     ))}
@@ -387,6 +517,34 @@ export function TeamVault() {
         open={selectedEntry !== null}
         onOpenChange={(open) => !open && setSelectedEntry(null)}
       />
+
+      {/* Unpublish Confirmation Dialog */}
+      <AlertDialog
+        open={unpublishTarget !== null}
+        onOpenChange={(open) => !open && setUnpublishTarget(null)}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Unpublish entry?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This will remove "{unpublishTarget?.title}" from the team vault.
+              The original entry in the publisher's personal vault is not affected.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={handleUnpublish}
+              disabled={unpublishEntry.isPending}
+            >
+              {unpublishEntry.isPending ? (
+                <Loader2 className="size-4 mr-2 animate-spin" />
+              ) : null}
+              Unpublish
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </>
   );
 }

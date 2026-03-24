@@ -66,6 +66,11 @@ export function EntryInspector({
   const [pendingClose, setPendingClose] = useState(false);
   const [isEditing, setIsEditing] = useState(false);
   const [liveEntry, setLiveEntry] = useState<Entry | null>(entry);
+  const [privacyWarning, setPrivacyWarning] = useState<{
+    teamId: string;
+    teamName: string;
+    matches: string[];
+  } | null>(null);
 
   // Edit form state
   const [editTitle, setEditTitle] = useState("");
@@ -232,16 +237,29 @@ export function EntryInspector({
     toast.success("JSON copied to clipboard");
   };
 
-  const handleShareToTeam = (teamId: string, teamName: string) => {
+  const handleShareToTeam = (teamId: string, teamName: string, force?: boolean) => {
     publishEntry.mutate(
-      { entryId: liveEntry.id, teamId },
+      { entryId: liveEntry.id, teamId, force },
       {
         onSuccess: () => {
+          setPrivacyWarning(null);
           setLiveEntry({ ...liveEntry, visibility: "team", teamId, teamName });
           qc.invalidateQueries({ queryKey: ["entries"] });
           toast.success(`Shared to ${teamName}`);
         },
         onError: (err) => {
+          if (err instanceof ApiError && err.status === 422) {
+            // Privacy scan flagged sensitive content
+            let matches: string[] = [];
+            try {
+              // err.message may contain the matched types
+              matches = err.message.split(",").map((s: string) => s.trim()).filter(Boolean);
+            } catch {
+              matches = [err.message];
+            }
+            setPrivacyWarning({ teamId, teamName, matches });
+            return;
+          }
           const msg = err instanceof Error ? err.message : "Failed to share";
           toast.error("Share failed", { description: msg });
         },
@@ -713,6 +731,52 @@ export function EntryInspector({
             <AlertDialogCancel>Keep editing</AlertDialogCancel>
             <AlertDialogAction onClick={handleDiscardConfirm}>
               Discard
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* Privacy Scan Warning Dialog */}
+      <AlertDialog
+        open={privacyWarning !== null}
+        onOpenChange={(open) => !open && setPrivacyWarning(null)}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Sensitive content detected</AlertDialogTitle>
+            <AlertDialogDescription asChild>
+              <div className="space-y-3">
+                <p>
+                  The privacy scan found potentially sensitive content in this entry:
+                </p>
+                <ul className="list-disc pl-5 space-y-1">
+                  {privacyWarning?.matches.map((match, i) => (
+                    <li key={i} className="text-sm font-medium text-foreground">
+                      {match}
+                    </li>
+                  ))}
+                </ul>
+                <p>
+                  Review the entry content before sharing. You can publish anyway
+                  if you're sure the content is safe to share with your team.
+                </p>
+              </div>
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => {
+                if (privacyWarning) {
+                  handleShareToTeam(
+                    privacyWarning.teamId,
+                    privacyWarning.teamName,
+                    true,
+                  );
+                }
+              }}
+            >
+              Publish Anyway
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

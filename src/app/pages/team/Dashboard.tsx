@@ -17,6 +17,11 @@ import {
   Loader2,
   Database,
   ArrowRight,
+  BookOpen,
+  Contact,
+  Terminal,
+  Copy,
+  Check,
 } from "lucide-react";
 import {
   useTeam,
@@ -28,6 +33,33 @@ import { useAuth } from "../../lib/auth";
 import { toast } from "sonner";
 
 const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+function CopyBlock({ value }: { value: string }) {
+  const [copied, setCopied] = useState(false);
+  const handleCopy = () => {
+    navigator.clipboard.writeText(value);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  };
+  return (
+    <div className="flex items-center gap-2 bg-muted rounded-md px-3 py-2 font-mono text-xs">
+      <code className="flex-1 break-all select-all">{value}</code>
+      <Button
+        variant="ghost"
+        size="icon"
+        className="size-6 shrink-0"
+        onClick={handleCopy}
+        aria-label="Copy to clipboard"
+      >
+        {copied ? (
+          <Check className="size-3 text-emerald-500" />
+        ) : (
+          <Copy className="size-3" />
+        )}
+      </Button>
+    </div>
+  );
+}
 
 export function TeamDashboard() {
   const { id } = useParams<{ id: string }>();
@@ -41,6 +73,10 @@ export function TeamDashboard() {
   const [showInvite, setShowInvite] = useState(false);
 
   const isOwnerOrAdmin = team?.role === "owner" || team?.role === "admin";
+
+  const byCategory = vaultStatus?.entries.by_category ?? {};
+  const knowledgeCount = byCategory["knowledge"] ?? 0;
+  const entityCount = byCategory["entity"] ?? 0;
 
   const handleInvite = (e: React.FormEvent) => {
     e.preventDefault();
@@ -158,7 +194,7 @@ export function TeamDashboard() {
       )}
 
       {/* Stats */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
         <Card>
           <CardHeader className="pb-2">
             <div className="flex items-center justify-between">
@@ -187,18 +223,75 @@ export function TeamDashboard() {
             </span>
           </CardContent>
         </Card>
-        <Card className="flex flex-col justify-center">
-          <CardContent className="pt-6">
-            <Link to={`/team/${id}/vault`}>
-              <Button variant="outline" className="w-full">
-                <Database className="size-4 mr-2" />
-                Browse Team Vault
-                <ArrowRight className="size-4 ml-auto" />
-              </Button>
-            </Link>
+        <Card>
+          <CardHeader className="pb-2">
+            <div className="flex items-center justify-between">
+              <CardTitle className="text-xs font-medium text-muted-foreground">
+                Knowledge
+              </CardTitle>
+              <BookOpen className="size-4 text-muted-foreground" />
+            </div>
+          </CardHeader>
+          <CardContent>
+            <span className="text-2xl font-semibold">{knowledgeCount}</span>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardHeader className="pb-2">
+            <div className="flex items-center justify-between">
+              <CardTitle className="text-xs font-medium text-muted-foreground">
+                Entities
+              </CardTitle>
+              <Contact className="size-4 text-muted-foreground" />
+            </div>
+          </CardHeader>
+          <CardContent>
+            <span className="text-2xl font-semibold">{entityCount}</span>
           </CardContent>
         </Card>
       </div>
+
+      {/* Browse vault link */}
+      <Card className="flex flex-col justify-center">
+        <CardContent className="pt-6">
+          <Link to={`/team/${id}/vault`}>
+            <Button variant="outline" className="w-full">
+              <Database className="size-4 mr-2" />
+              Browse Team Vault
+              <ArrowRight className="size-4 ml-auto" />
+            </Button>
+          </Link>
+        </CardContent>
+      </Card>
+
+      {/* CLI Setup */}
+      <Card>
+        <CardHeader className="pb-3">
+          <div className="flex items-center gap-2">
+            <Terminal className="size-4 text-muted-foreground" />
+            <CardTitle className="text-base">Setup CLI</CardTitle>
+          </div>
+          <p className="text-xs text-muted-foreground mt-1">
+            Run these commands to connect your local vault to this team.
+          </p>
+        </CardHeader>
+        <CardContent>
+          <div className="space-y-3">
+            <div className="space-y-1">
+              <p className="text-xs text-muted-foreground">1. Install or update context-vault</p>
+              <CopyBlock value="npx context-vault setup" />
+            </div>
+            <div className="space-y-1">
+              <p className="text-xs text-muted-foreground">2. Connect to the hosted API</p>
+              <CopyBlock value="context-vault remote setup" />
+            </div>
+            <div className="space-y-1">
+              <p className="text-xs text-muted-foreground">3. Join this team</p>
+              <CopyBlock value={`context-vault team join ${id}`} />
+            </div>
+          </div>
+        </CardContent>
+      </Card>
 
       {/* Members List */}
       <Card>

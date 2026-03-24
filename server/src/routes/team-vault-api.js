@@ -7,6 +7,7 @@
  *   POST   /api/team/:teamId/entries       Create entry in team vault
  *   POST   /api/team/:teamId/search        Search team vault (FTS)
  *   GET    /api/team/:teamId/status        Team vault stats
+ *   DELETE /api/team/:teamId/entries/:id  Unpublish (delete) a team entry
  *   POST   /api/vault/publish              Publish a personal entry to a team vault
  *
  * All team routes verify the authenticated user is a member of the team
@@ -21,6 +22,7 @@
 import { Hono } from "hono";
 import { queryAll, queryOne, execute } from "../storage/turso.js";
 import { validateEntryInput } from "../validation/entry-validation.js";
+import { scanEntry } from "../validation/privacy-scan.js";
 import { hasScope } from "../auth/scopes.js";
 import {
   normalizeKind,
@@ -433,6 +435,26 @@ export function createTeamVaultApiRoutes() {
       );
     }
 
+    // Privacy scan: block entries with sensitive content unless force: true
+    if (!data.force) {
+      const scan = scanEntry({
+        title: data.title,
+        body: data.body,
+        meta: data.meta,
+      });
+      if (!scan.clean) {
+        return c.json(
+          {
+            error: "Entry contains potentially sensitive content",
+            code: "PRIVACY_SCAN_FAILED",
+            matches: scan.matches,
+            hint: "Remove sensitive content before publishing, or use force: true to override",
+          },
+          422,
+        );
+      }
+    }
+
     try {
       // Step 3: conflict detection for knowledge entries
       let conflictInfo = null;
@@ -578,6 +600,61 @@ export function createTeamVaultApiRoutes() {
     }
   });
 
+  // ── DELETE /api/team/:teamId/entries/:id -- Unpublish team entry ──────────
+
+  api.delete("/api/team/:teamId/entries/:id", async (c) => {
+    const user = c.get("authUser");
+    if (!hasScope(user.scopes ?? ["*"], "vault:write")) {
+      return c.json(
+        { error: "Insufficient scope. Required: vault:write", code: "FORBIDDEN" },
+        403,
+      );
+    }
+
+    const { db } = c.get("ctx");
+    const teamId = c.req.param("teamId");
+    const id = c.req.param("id");
+
+    const entry = await queryOne(
+      db,
+      "SELECT * FROM vault WHERE id = ? AND team_id = ?",
+      [id, teamId],
+    );
+    if (!entry) {
+      return c.json({ error: "Entry not found", code: "NOT_FOUND" }, 404);
+    }
+
+    // Ownership check: must be the original publisher or a team admin/owner
+    const membership = c.get("teamMembership");
+    const isOwner = entry.user_id === user.id;
+    const isAdmin =
+      membership.role === "admin" || membership.role === "owner";
+
+    if (!isOwner && !isAdmin) {
+      return c.json(
+        {
+          error: "Only the publisher or a team admin can unpublish this entry",
+          code: "FORBIDDEN",
+        },
+        403,
+      );
+    }
+
+    try {
+      await execute(db, "DELETE FROM vault WHERE id = ? AND team_id = ?", [
+        id,
+        teamId,
+      ]);
+      return c.json({ unpublished: true, entryId: id });
+    } catch (err) {
+      console.error(`[team-vault-api] Delete entry error: ${err.message}`);
+      return c.json(
+        { error: "Failed to delete entry", code: "DELETE_FAILED" },
+        500,
+      );
+    }
+  });
+
   // ── POST /api/vault/publish -- Publish personal entry to team vault ───────
 
   api.post("/api/vault/publish", async (c) => {
@@ -658,6 +735,27 @@ export function createTeamVaultApiRoutes() {
     }
 
     const targetTeamId = visibility === "team" ? teamId : null;
+
+    // Privacy scan: block entries with sensitive content unless force: true
+    if (!data.force) {
+      const sourceMeta = source.meta ? source.meta : null;
+      const scan = scanEntry({
+        title: source.title,
+        body: source.body,
+        meta: sourceMeta,
+      });
+      if (!scan.clean) {
+        return c.json(
+          {
+            error: "Entry contains potentially sensitive content",
+            code: "PRIVACY_SCAN_FAILED",
+            matches: scan.matches,
+            hint: "Remove sensitive content before publishing, or use force: true to override",
+          },
+          422,
+        );
+      }
+    }
 
     try {
       // Step 2: Entity federation

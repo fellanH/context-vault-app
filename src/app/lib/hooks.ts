@@ -163,6 +163,8 @@ export function useApiKeys() {
         createdAt: new Date(k.createdAt as string),
         lastUsedAt: k.lastUsedAt ? new Date(k.lastUsedAt as string) : undefined,
         expiresAt: k.expiresAt ? new Date(k.expiresAt as string) : undefined,
+        requestCount: (k.requestCount as number) ?? 0,
+        enabled: (k.enabled as boolean) ?? true,
       }));
     },
   });

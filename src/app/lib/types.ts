@@ -50,6 +50,8 @@ export interface ApiKey {
   createdAt: Date;
   lastUsedAt?: Date;
   expiresAt?: Date;
+  requestCount: number;
+  enabled: boolean;
 }
 
 export interface UsageResponse {

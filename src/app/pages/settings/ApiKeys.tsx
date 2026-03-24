@@ -16,6 +16,16 @@ import {
   TooltipTrigger,
 } from "../../components/ui/tooltip";
 import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "../../components/ui/alert-dialog";
+import {
   Copy,
   Check,
   Plus,
@@ -23,12 +33,17 @@ import {
   Loader2,
   AlertTriangle,
   Info,
+  Activity,
+  Shield,
+  Zap,
 } from "lucide-react";
 import {
   useApiKeys,
   useCreateApiKey,
   useDeleteApiKey,
+  useRawUsage,
 } from "../../lib/hooks";
+import { useAuth } from "../../lib/auth";
 import type { ApiKey } from "../../lib/types";
 import { toast } from "sonner";
 
@@ -62,6 +77,12 @@ const SCOPE_OPTIONS = [
   },
 ] as const;
 
+const RATE_LIMITS: Record<string, { requestsPerDay: string; requestsPerMin: string; entries: string }> = {
+  free: { requestsPerDay: "200 / day", requestsPerMin: "~3 / min", entries: "1,000" },
+  pro: { requestsPerDay: "Unlimited", requestsPerMin: "Unlimited", entries: "Unlimited" },
+  team: { requestsPerDay: "Unlimited", requestsPerMin: "Unlimited", entries: "Unlimited" },
+};
+
 function ScopeBadges({ scopes }: { scopes: string[] }) {
   if (scopes.includes("*")) {
     return (
@@ -70,78 +91,144 @@ function ScopeBadges({ scopes }: { scopes: string[] }) {
       </Badge>
     );
   }
+  const readOnly = scopes.every((s) => s.endsWith(":read") || s === "keys:read");
   return (
-    <>
-      {scopes.map((s) => (
-        <Badge key={s} variant="outline" className="text-[10px] font-mono">
-          {s}
+    <div className="flex items-center gap-1 flex-wrap">
+      {readOnly && (
+        <Badge variant="outline" className="text-[10px] border-blue-500/40 text-blue-600 dark:text-blue-400">
+          Read-only
         </Badge>
-      ))}
-    </>
+      )}
+      {!readOnly &&
+        scopes.map((s) => (
+          <Badge key={s} variant="outline" className="text-[10px] font-mono">
+            {s}
+          </Badge>
+        ))}
+    </div>
   );
+}
+
+function formatRelativeDate(date: Date): string {
+  const now = Date.now();
+  const diff = now - date.getTime();
+  const minutes = Math.floor(diff / 60000);
+  const hours = Math.floor(diff / 3600000);
+  const days = Math.floor(diff / 86400000);
+
+  if (minutes < 1) return "Just now";
+  if (minutes < 60) return `${minutes}m ago`;
+  if (hours < 24) return `${hours}h ago`;
+  if (days < 7) return `${days}d ago`;
+  return date.toLocaleDateString();
 }
 
 function KeyRow({
   apiKey,
   now,
   onDelete,
-  deleteIsPending,
 }: {
   apiKey: ApiKey;
   now: number;
-  onDelete: (id: string) => void;
-  deleteIsPending: boolean;
+  onDelete: (id: string, name: string) => void;
 }) {
   const expiringSoon =
     apiKey.expiresAt &&
     apiKey.expiresAt > new Date() &&
     apiKey.expiresAt.getTime() - now < SEVEN_DAYS_MS;
 
+  const expired = apiKey.expiresAt && apiKey.expiresAt <= new Date();
+
   return (
-    <div className="rounded-lg border border-border">
-      <div className="flex items-center justify-between py-2 px-3">
-        <div className="flex items-center gap-3 flex-wrap">
-          <div>
-            <p className="text-sm font-medium">{apiKey.name}</p>
-            <p className="text-xs text-muted-foreground font-mono">
-              {apiKey.prefix}...
-            </p>
+    <div className={`rounded-lg border ${expired ? "border-destructive/30 bg-destructive/5" : "border-border"}`}>
+      <div className="flex items-center justify-between py-3 px-4">
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center gap-2 mb-1">
+            <p className="text-sm font-medium truncate">{apiKey.name}</p>
+            {expired && (
+              <Badge variant="destructive" className="text-[10px]">
+                Expired
+              </Badge>
+            )}
           </div>
-          <ScopeBadges scopes={apiKey.scopes} />
-          <Badge variant="secondary" className="text-[10px]">
-            {apiKey.createdAt.toLocaleDateString()}
-          </Badge>
-          <Badge variant="outline" className="text-[10px]">
-            {apiKey.lastUsedAt
-              ? `Used ${apiKey.lastUsedAt.toLocaleDateString()}`
-              : "Never used"}
-          </Badge>
-          {apiKey.expiresAt && (
-            <Badge
-              variant={expiringSoon ? "destructive" : "outline"}
-              className="text-[10px] gap-1"
-            >
-              {expiringSoon && <AlertTriangle className="size-2.5" />}
-              Expires {apiKey.expiresAt.toLocaleDateString()}
-            </Badge>
-          )}
+          <div className="flex items-center gap-3 flex-wrap">
+            <code className="text-xs text-muted-foreground font-mono">
+              {apiKey.prefix}...
+            </code>
+            <ScopeBadges scopes={apiKey.scopes} />
+          </div>
         </div>
-        <div className="flex items-center gap-1">
+
+        <div className="flex items-center gap-4 ml-4 shrink-0">
+          {/* Stats */}
+          <div className="hidden sm:flex items-center gap-4 text-xs text-muted-foreground">
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <div className="flex items-center gap-1">
+                  <Activity className="size-3" />
+                  <span className="tabular-nums">{apiKey.requestCount.toLocaleString()}</span>
+                </div>
+              </TooltipTrigger>
+              <TooltipContent>
+                {apiKey.requestCount.toLocaleString()} total requests
+              </TooltipContent>
+            </Tooltip>
+
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <span>
+                  {apiKey.lastUsedAt
+                    ? formatRelativeDate(apiKey.lastUsedAt)
+                    : "Never used"}
+                </span>
+              </TooltipTrigger>
+              <TooltipContent>
+                {apiKey.lastUsedAt
+                  ? `Last used: ${apiKey.lastUsedAt.toLocaleString()}`
+                  : "This key has never been used"}
+              </TooltipContent>
+            </Tooltip>
+
+            <span className="text-muted-foreground/50">
+              {apiKey.createdAt.toLocaleDateString()}
+            </span>
+          </div>
+
+          {expiringSoon && !expired && (
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <AlertTriangle className="size-3.5 text-amber-500" />
+              </TooltipTrigger>
+              <TooltipContent>
+                Expires {apiKey.expiresAt!.toLocaleDateString()}
+              </TooltipContent>
+            </Tooltip>
+          )}
+
           <Button
             variant="ghost"
             size="icon"
             className="size-8 text-muted-foreground hover:text-destructive"
-            onClick={() => onDelete(apiKey.id)}
-            disabled={deleteIsPending}
-            aria-label={`Delete API key ${apiKey.name}`}
+            onClick={() => onDelete(apiKey.id, apiKey.name)}
+            aria-label={`Revoke API key ${apiKey.name}`}
           >
-            {deleteIsPending ? (
-              <Loader2 className="size-3.5 animate-spin" />
-            ) : (
-              <Trash2 className="size-3.5" />
-            )}
+            <Trash2 className="size-3.5" />
           </Button>
         </div>
+      </div>
+
+      {/* Mobile stats row */}
+      <div className="sm:hidden flex items-center gap-3 px-4 pb-2 text-xs text-muted-foreground">
+        <div className="flex items-center gap-1">
+          <Activity className="size-3" />
+          <span>{apiKey.requestCount.toLocaleString()} requests</span>
+        </div>
+        <span>
+          {apiKey.lastUsedAt
+            ? `Used ${formatRelativeDate(apiKey.lastUsedAt)}`
+            : "Never used"}
+        </span>
+        <span>{apiKey.createdAt.toLocaleDateString()}</span>
       </div>
     </div>
   );
@@ -149,6 +236,8 @@ function KeyRow({
 
 export function ApiKeys() {
   const { data: keys, isLoading } = useApiKeys();
+  const { data: rawUsage } = useRawUsage();
+  const { user } = useAuth();
   const createMutation = useCreateApiKey();
   const deleteMutation = useDeleteApiKey();
   const [newKeyName, setNewKeyName] = useState("");
@@ -158,8 +247,11 @@ export function ApiKeys() {
   const [newlyCreatedKey, setNewlyCreatedKey] = useState<string | null>(null);
   const [fullAccess, setFullAccess] = useState(true);
   const [customScopes, setCustomScopes] = useState<string[]>([]);
+  const [deleteTarget, setDeleteTarget] = useState<{ id: string; name: string } | null>(null);
 
   const now = Date.now();
+  const tier = user?.tier || "free";
+  const limits = RATE_LIMITS[tier] || RATE_LIMITS.free;
 
   const toggleScope = (scope: string) => {
     setCustomScopes((prev) =>
@@ -208,13 +300,16 @@ export function ApiKeys() {
     );
   };
 
-  const deleteKey = (id: string) => {
-    deleteMutation.mutate(id, {
+  const confirmDelete = () => {
+    if (!deleteTarget) return;
+    deleteMutation.mutate(deleteTarget.id, {
       onSuccess: () => {
-        toast.success("API key deleted");
+        toast.success(`API key "${deleteTarget.name}" revoked`);
+        setDeleteTarget(null);
       },
       onError: () => {
-        toast.error("Failed to delete API key");
+        toast.error("Failed to revoke API key");
+        setDeleteTarget(null);
       },
     });
   };
@@ -247,6 +342,8 @@ export function ApiKeys() {
   tomorrow.setDate(tomorrow.getDate() + 1);
   const minDate = tomorrow.toISOString().split("T")[0];
 
+  const totalRequests = keys?.reduce((sum, k) => sum + k.requestCount, 0) ?? 0;
+
   return (
     <div className="p-6 max-w-3xl mx-auto space-y-6">
       <div>
@@ -255,6 +352,46 @@ export function ApiKeys() {
           Manage your API keys for connecting Context Vault to Claude Code and
           other tools.
         </p>
+      </div>
+
+      {/* Rate limits and usage overview */}
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+        <Card>
+          <CardContent className="pt-4 pb-3">
+            <div className="flex items-center gap-2 mb-1">
+              <Shield className="size-3.5 text-muted-foreground" />
+              <span className="text-xs text-muted-foreground">Rate Limit</span>
+            </div>
+            <p className="text-lg font-semibold tabular-nums">{limits.requestsPerDay}</p>
+            <p className="text-[11px] text-muted-foreground">
+              {rawUsage?.usage.requestsToday ?? 0} used today
+            </p>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardContent className="pt-4 pb-3">
+            <div className="flex items-center gap-2 mb-1">
+              <Activity className="size-3.5 text-muted-foreground" />
+              <span className="text-xs text-muted-foreground">Total Requests</span>
+            </div>
+            <p className="text-lg font-semibold tabular-nums">{totalRequests.toLocaleString()}</p>
+            <p className="text-[11px] text-muted-foreground">
+              across {keys?.length ?? 0} key{(keys?.length ?? 0) !== 1 ? "s" : ""}
+            </p>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardContent className="pt-4 pb-3">
+            <div className="flex items-center gap-2 mb-1">
+              <Zap className="size-3.5 text-muted-foreground" />
+              <span className="text-xs text-muted-foreground">Tier</span>
+            </div>
+            <p className="text-lg font-semibold capitalize">{tier}</p>
+            <p className="text-[11px] text-muted-foreground">
+              {limits.entries} entries max
+            </p>
+          </CardContent>
+        </Card>
       </div>
 
       {newlyCreatedKey && (
@@ -424,7 +561,7 @@ export function ApiKeys() {
               {[1, 2].map((i) => (
                 <div
                   key={i}
-                  className="h-12 rounded-lg bg-muted animate-pulse"
+                  className="h-16 rounded-lg bg-muted animate-pulse"
                 />
               ))}
             </div>
@@ -439,8 +576,7 @@ export function ApiKeys() {
                   key={key.id}
                   apiKey={key}
                   now={now}
-                  onDelete={deleteKey}
-                  deleteIsPending={deleteMutation.isPending}
+                  onDelete={(id, name) => setDeleteTarget({ id, name })}
                 />
               ))}
             </div>
@@ -480,6 +616,38 @@ export function ApiKeys() {
           </p>
         </CardContent>
       </Card>
+
+      {/* Delete confirmation dialog */}
+      <AlertDialog open={!!deleteTarget} onOpenChange={(open) => !open && setDeleteTarget(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Revoke API key?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This will permanently revoke{" "}
+              <span className="font-medium text-foreground">
+                {deleteTarget?.name}
+              </span>
+              . Any tools or integrations using this key will stop working
+              immediately. This action cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={deleteMutation.isPending}>
+              Cancel
+            </AlertDialogCancel>
+            <AlertDialogAction
+              onClick={confirmDelete}
+              disabled={deleteMutation.isPending}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              {deleteMutation.isPending ? (
+                <Loader2 className="size-3.5 animate-spin mr-1.5" />
+              ) : null}
+              Revoke Key
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

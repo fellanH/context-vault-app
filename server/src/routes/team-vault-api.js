@@ -19,7 +19,7 @@
  */
 
 import { Hono } from "hono";
-import { queryAll, queryOne } from "../storage/turso.js";
+import { queryAll, queryOne, execute } from "../storage/turso.js";
 import { validateEntryInput } from "../validation/entry-validation.js";
 import { hasScope } from "../auth/scopes.js";
 import {
@@ -130,6 +130,172 @@ async function ftsSearchTeam(db, teamId, query, opts = {}) {
   `;
 
   return await queryAll(db, sql, args);
+}
+
+// ── Conflict detection (Step 3) ──────────────────────────────────────────────
+
+/**
+ * Check for similar knowledge entries in the team vault using FTS.
+ * Returns advisory conflict info (never blocks the save).
+ *
+ * @param {object} db - Turso client
+ * @param {string} teamId - Team to search in
+ * @param {string} title - Entry title
+ * @param {string} body - Entry body
+ * @param {string} userId - Author of the new entry
+ * @returns {Promise<object|null>} Conflict info or null
+ */
+async function detectTeamConflict(db, teamId, title, body, userId) {
+  const queryText = [title || "", (body || "").slice(0, 200)]
+    .filter(Boolean)
+    .join(" ")
+    .trim();
+  if (!queryText) return null;
+
+  try {
+    const results = await ftsSearchTeam(db, teamId, queryText, { limit: 1 });
+    if (!results.length) return null;
+
+    const match = results[0];
+    const score = Math.round((Number(match.score) || 0) * 1000) / 1000;
+
+    // FTS rank-based score: 1/(1+rank). Scores above ~0.3 indicate strong match.
+    // Using 0.3 as threshold since FTS scores are not cosine similarity.
+    if (score < 0.3) return null;
+
+    if (match.user_id === userId) {
+      return { suggestion: "UPDATE", existing_entry_id: match.id, score };
+    }
+
+    return {
+      conflict: {
+        existing_entry_id: match.id,
+        existing_author_id: match.user_id,
+        similarity_note: "Similar entry exists in team vault",
+        suggestion: "Review before saving",
+        score,
+      },
+    };
+  } catch {
+    return null;
+  }
+}
+
+// ── Entity federation (Step 2) ──────────────────────────────────────────────
+
+/**
+ * Publish an entity to the team vault using federation semantics.
+ * If an entity with the same identity_key exists, merge metadata.
+ * If not, create a new team entity. Links both entries via meta.
+ *
+ * @param {object} db - Turso client
+ * @param {object} ai - Workers AI binding
+ * @param {object} source - Source personal entry (DB row)
+ * @param {string} teamId - Target team
+ * @param {string} userId - Publishing user
+ * @returns {Promise<object>} The team entry (formatted)
+ */
+async function federateEntity(db, ai, source, teamId, userId) {
+  const now = new Date().toISOString().replace("T", " ").slice(0, 19);
+  const sourceMeta = source.meta ? JSON.parse(source.meta) : {};
+  const sourceTags = source.tags ? JSON.parse(source.tags) : [];
+
+  // Look up existing team entity by identity_key
+  const existing = await queryOne(
+    db,
+    `SELECT * FROM vault WHERE team_id = ? AND identity_key = ? AND category = 'entity'`,
+    [teamId, source.identity_key],
+  );
+
+  let teamEntryId;
+
+  if (existing) {
+    // Merge metadata: for each key, keep the value with newer updated_at
+    const existingMeta = existing.meta ? JSON.parse(existing.meta) : {};
+    const existingUpdated = existing.updated_at || existing.created_at;
+    const sourceUpdated = source.updated_at || source.created_at;
+
+    const merged = { ...existingMeta };
+    for (const [key, val] of Object.entries(sourceMeta)) {
+      if (key === "team_ref" || key === "source_refs" || key === "contributors")
+        continue;
+      if (
+        !(key in existingMeta) ||
+        (sourceUpdated && existingUpdated && sourceUpdated > existingUpdated)
+      ) {
+        merged[key] = val;
+      }
+    }
+
+    // Maintain contributors array
+    const contributors = new Set(existingMeta.contributors || []);
+    if (existing.user_id) contributors.add(existing.user_id);
+    contributors.add(userId);
+    merged.contributors = [...contributors];
+
+    // Maintain source_refs array
+    const sourceRefs = new Set(existingMeta.source_refs || []);
+    sourceRefs.add(source.id);
+    merged.source_refs = [...sourceRefs];
+
+    // Merge tags
+    const existingTags = existing.tags ? JSON.parse(existing.tags) : [];
+    const mergedTags = [...new Set([...existingTags, ...sourceTags])];
+
+    // Use newer title/body
+    const useSourceContent = sourceUpdated > existingUpdated;
+    const newTitle = useSourceContent ? source.title : existing.title;
+    const newBody = useSourceContent ? source.body : existing.body;
+
+    await execute(
+      db,
+      `UPDATE vault SET title = ?, body = ?, meta = ?, tags = ?, updated_at = ?
+       WHERE id = ?`,
+      [
+        newTitle,
+        newBody,
+        JSON.stringify(merged),
+        JSON.stringify(mergedTags),
+        now,
+        existing.id,
+      ],
+    );
+
+    teamEntryId = existing.id;
+  } else {
+    // Create new team entity
+    const newMeta = {
+      ...sourceMeta,
+      source_refs: [source.id],
+      contributors: [userId],
+    };
+
+    teamEntryId = await insertEntry(db, ai, {
+      kind: source.kind,
+      title: source.title,
+      body: source.body,
+      meta: newMeta,
+      tags: sourceTags,
+      source: `published:${source.id}`,
+      identity_key: source.identity_key,
+      expires_at: source.expires_at,
+      userId,
+      teamId,
+    });
+  }
+
+  // Link: update personal entity's meta with team_ref
+  const personalMeta = { ...sourceMeta, team_ref: teamEntryId };
+  await execute(
+    db,
+    `UPDATE vault SET meta = ?, updated_at = ? WHERE id = ?`,
+    [JSON.stringify(personalMeta), now, source.id],
+  );
+
+  const teamEntry = await queryOne(db, "SELECT * FROM vault WHERE id = ?", [
+    teamEntryId,
+  ]);
+  return formatEntry(teamEntry);
 }
 
 // ── Route factory ────────────────────────────────────────────────────────────
@@ -268,6 +434,18 @@ export function createTeamVaultApiRoutes() {
     }
 
     try {
+      // Step 3: conflict detection for knowledge entries
+      let conflictInfo = null;
+      if (categoryFor(data.kind) === "knowledge") {
+        conflictInfo = await detectTeamConflict(
+          db,
+          teamId,
+          data.title,
+          data.body,
+          user.id,
+        );
+      }
+
       const id = await insertEntry(db, ai, {
         kind: data.kind,
         title: data.title,
@@ -282,7 +460,13 @@ export function createTeamVaultApiRoutes() {
       });
 
       const entry = await queryOne(db, "SELECT * FROM vault WHERE id = ?", [id]);
-      return c.json(formatEntry(entry), 201);
+      const response = formatEntry(entry);
+
+      // Attach conflict advisory if detected
+      if (conflictInfo) {
+        return c.json({ ...response, ...conflictInfo }, 201);
+      }
+      return c.json(response, 201);
     } catch (err) {
       console.error(`[team-vault-api] Create entry error: ${err.message}`);
       return c.json(
@@ -458,8 +642,53 @@ export function createTeamVaultApiRoutes() {
       );
     }
 
+    // Step 1: Category-aware publish rules
+    const category = categoryFor(source.kind);
+
+    // Events are private by design
+    if (category === "event") {
+      return c.json(
+        {
+          error:
+            "Event entries cannot be published to team vaults. Events are private by design.",
+          code: "EVENT_PUBLISH_FORBIDDEN",
+        },
+        403,
+      );
+    }
+
+    const targetTeamId = visibility === "team" ? teamId : null;
+
     try {
-      // Copy the entry to the team vault with a new ID
+      // Step 2: Entity federation
+      if (category === "entity" && targetTeamId) {
+        const teamEntry = await federateEntity(
+          db,
+          ai,
+          source,
+          targetTeamId,
+          user.id,
+        );
+        return c.json(
+          { published: true, sourceId: entryId, federated: true, entry: teamEntry },
+          201,
+        );
+      }
+
+      // Knowledge: copy to team vault (existing behavior)
+
+      // Step 3: conflict detection for knowledge entries
+      let conflictInfo = null;
+      if (category === "knowledge" && targetTeamId) {
+        conflictInfo = await detectTeamConflict(
+          db,
+          targetTeamId,
+          source.title,
+          source.body,
+          user.id,
+        );
+      }
+
       const id = await insertEntry(db, ai, {
         kind: source.kind,
         title: source.title,
@@ -470,18 +699,22 @@ export function createTeamVaultApiRoutes() {
         identity_key: source.identity_key,
         expires_at: source.expires_at,
         userId: user.id,
-        teamId: visibility === "team" ? teamId : null,
+        teamId: targetTeamId,
       });
 
       const entry = await queryOne(db, "SELECT * FROM vault WHERE id = ?", [id]);
-      return c.json(
-        {
-          published: true,
-          sourceId: entryId,
-          entry: formatEntry(entry),
-        },
-        201,
-      );
+      const response = {
+        published: true,
+        sourceId: entryId,
+        entry: formatEntry(entry),
+      };
+
+      // Attach conflict advisory if detected
+      if (conflictInfo) {
+        Object.assign(response, conflictInfo);
+      }
+
+      return c.json(response, 201);
     } catch (err) {
       console.error(`[team-vault-api] Publish error: ${err.message}`);
       return c.json(

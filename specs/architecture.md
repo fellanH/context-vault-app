@@ -122,6 +122,49 @@ The app never stores rules content on the server. Rules are always local files m
 - How does the app frontend connect to the local MCP server? Options: (a) localhost HTTP endpoint on the MCP server, (b) browser extension as bridge, (c) Tauri/Electron wrapper. Decision deferred to implementation.
 - Should rules editing be real-time (WebSocket) or request-response (HTTP)? Likely HTTP is sufficient since edits are infrequent.
 
+## Hosted Vault API
+
+The server exposes a full REST API for vault operations, accessible via API key (Bearer token) or session cookie.
+
+### API Surface
+
+| Endpoint | Method | Purpose |
+|----------|--------|---------|
+| GET /api/vault/search?q=... | GET | FTS search via query params |
+| POST /api/vault/search | POST | FTS search via JSON body |
+| POST /api/vault/entries | POST | Create entry |
+| GET /api/vault/entries | GET | List entries (filters, pagination) |
+| GET /api/vault/entries/:id | GET | Get single entry |
+| PUT /api/vault/entries/:id | PUT | Update entry |
+| DELETE /api/vault/entries/:id | DELETE | Delete entry |
+| GET /api/vault/status | GET | Vault health/stats |
+| POST /api/vault/recall | POST | Signal-based retrieval |
+| POST /api/vault/import | POST | Single-entry import |
+| POST /api/vault/import/bulk | POST | Bulk import (up to 500) |
+| POST /api/vault/ingest | POST | Fetch URL and save |
+| GET /api/vault/manifest | GET | Lightweight sync manifest |
+| GET /api/vault/openapi.json | GET | OpenAPI spec (public) |
+
+### Auth
+
+Two auth paths, tried in order:
+1. Session cookie (web app users, via better-auth)
+2. Bearer API key (external tools, scripts, ChatGPT GPTs)
+
+The `vaultAuth()` middleware normalizes both into a consistent `authUser` object.
+
+### Per-User Vault Databases
+
+Each user gets a dedicated Turso database for structural isolation (no row-level filtering risk).
+
+- `user_vaults` table in shared DB maps user_id -> vault DB URL/token
+- Provisioned on first vault API call via Turso Platform API
+- `vaultDbRouting()` middleware swaps ctx.db per-request to user's vault DB
+- Graceful fallback to shared DB if TURSO_API_TOKEN not configured
+- Team vaults use shared DB with team_id column (separate concern)
+
+Requires secrets: TURSO_API_TOKEN, TURSO_ORG, TURSO_GROUP (optional).
+
 ## Key Decisions
 
 - Separate frontend/backend in one repo (not a monorepo with shared deps): keeps deploy pipelines independent [2026-01]
@@ -129,3 +172,5 @@ The app never stores rules content on the server. Rules are always local files m
 - Hono over Express for backend: lighter, better TypeScript support [2026-01]
 - Fly.io for backend hosting: persistent volumes for SQLite, global edge network [2026-01]
 - Vercel for frontend: zero-config React deploy with preview URLs [2026-01]
+- Per-user Turso DB for vault isolation: structural isolation prevents data leaks from missed WHERE clauses, low per-DB cost on Turso [2026-03-24]
+- FTS-only search for hosted API v1: Workers AI embeddings available but vector storage in Turso not mature enough, semantic search deferred [2026-03-24]

@@ -401,6 +401,70 @@ export function generateOpenApiSpec({ version = "1.0.0", serverUrl } = {}) {
         },
       },
       "/api/vault/search": {
+        get: {
+          operationId: "searchVaultGet",
+          summary: "Search the vault (GET)",
+          description:
+            "Search the vault via query parameters. Use q for the search query, tags for comma-separated tag filters. This is the simplest way to search from any HTTP client.",
+          tags: ["Search"],
+          parameters: [
+            {
+              name: "q",
+              in: "query",
+              required: true,
+              schema: { type: "string" },
+              description: "Natural language search query",
+            },
+            {
+              name: "tags",
+              in: "query",
+              schema: { type: "string" },
+              description: "Comma-separated tag filter (entries must match at least one)",
+            },
+            {
+              name: "kind",
+              in: "query",
+              schema: { type: "string" },
+              description: "Filter to specific kind",
+            },
+            {
+              name: "category",
+              in: "query",
+              schema: { type: "string", enum: ["knowledge", "entity", "event"] },
+            },
+            {
+              name: "limit",
+              in: "query",
+              schema: { type: "integer", minimum: 1, maximum: 100, default: 20 },
+            },
+            {
+              name: "offset",
+              in: "query",
+              schema: { type: "integer", minimum: 0, default: 0 },
+            },
+          ],
+          responses: {
+            200: {
+              description: "Search results ranked by relevance",
+              content: {
+                "application/json": {
+                  schema: {
+                    type: "object",
+                    properties: {
+                      results: {
+                        type: "array",
+                        items: { $ref: "#/components/schemas/SearchResult" },
+                      },
+                      count: { type: "integer" },
+                      query: { type: "string" },
+                    },
+                  },
+                },
+              },
+            },
+            400: { description: "Missing search query" },
+          },
+        },
         post: {
           operationId: "searchVault",
           summary: "Search the vault",
@@ -463,6 +527,78 @@ export function generateOpenApiSpec({ version = "1.0.0", serverUrl } = {}) {
               },
             },
             400: { description: "Missing or invalid query" },
+          },
+        },
+      },
+      "/api/vault/recall": {
+        post: {
+          operationId: "recallVault",
+          summary: "Signal-based recall",
+          description:
+            "Lightweight retrieval based on a raw signal (prompt text, error message, file path). Returns compact hints for proactive context surfacing. Designed for runtime hooks and integrations.",
+          tags: ["Search"],
+          requestBody: {
+            required: true,
+            content: {
+              "application/json": {
+                schema: {
+                  type: "object",
+                  required: ["signal"],
+                  properties: {
+                    signal: {
+                      type: "string",
+                      description: "Raw text: prompt, error message, file path, or combined signal",
+                    },
+                    signal_type: {
+                      type: "string",
+                      enum: ["prompt", "error", "file", "task"],
+                      default: "prompt",
+                    },
+                    max_hints: {
+                      type: "integer",
+                      minimum: 1,
+                      maximum: 10,
+                      default: 3,
+                    },
+                    bucket: {
+                      type: "string",
+                      description: "Scope results to a project bucket",
+                    },
+                  },
+                },
+              },
+            },
+          },
+          responses: {
+            200: {
+              description: "Recall hints",
+              content: {
+                "application/json": {
+                  schema: {
+                    type: "object",
+                    properties: {
+                      hints: {
+                        type: "array",
+                        items: {
+                          type: "object",
+                          properties: {
+                            id: { type: "string" },
+                            kind: { type: "string" },
+                            title: { type: ["string", "null"] },
+                            body_preview: { type: ["string", "null"] },
+                            tags: { type: "array", items: { type: "string" } },
+                            score: { type: "number" },
+                          },
+                        },
+                      },
+                      count: { type: "integer" },
+                      signal_type: { type: "string" },
+                    },
+                  },
+                },
+              },
+            },
+            400: { description: "Missing signal" },
           },
         },
       },

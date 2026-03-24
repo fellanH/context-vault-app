@@ -9,6 +9,7 @@
  */
 
 import { createTursoClient, initSchemas } from "./turso.js";
+import { USER_VAULTS_SCHEMA } from "./user-vault-db.js";
 
 let schemasInitialized = false;
 
@@ -24,6 +25,12 @@ export async function createWorkerCtx(env) {
   // Lazy schema init (runs once per Worker instance lifecycle)
   if (!schemasInitialized) {
     await initSchemas(db);
+    // User vault DB mapping table (shared DB only)
+    await db.executeMultiple(USER_VAULTS_SCHEMA).catch((e) => {
+      if (!e.message?.includes("already exists")) {
+        console.warn(`[workers-ctx] user_vaults schema warning: ${e.message}`);
+      }
+    });
     schemasInitialized = true;
   }
 

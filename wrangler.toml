@@ -44,6 +44,9 @@ binding = "AI"
 # STRIPE_PRICE_PRO_ANNUAL - Stripe price ID for Pro annual plan
 # RESEND_API_KEY          - Resend email API key
 # VAULT_MASTER_SECRET     - Master encryption key (16+ chars)
+# TURSO_API_TOKEN         - Turso Platform API token (for per-user DB provisioning)
+# TURSO_ORG               - Turso organization slug (for per-user DB provisioning)
+# TURSO_GROUP             - Turso DB group (default: "default")
 
 [env.dev]
 name = "context-vault-api-dev"

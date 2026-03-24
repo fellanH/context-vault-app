@@ -626,6 +626,59 @@ export function createVaultApiRoutes() {
     });
   });
 
+  // ─── GET /api/vault/search — FTS search via query params ─────────────────────
+
+  api.get("/api/vault/search", async (c) => {
+    const user = c.get("authUser");
+    if (!user) return c.json({ error: "Unauthorized", code: "UNAUTHORIZED" }, 401);
+    if (!hasScope(user.scopes ?? ["*"], "vault:read")) {
+      return c.json(
+        { error: "Insufficient scope. Required: vault:read", code: "FORBIDDEN" },
+        403,
+      );
+    }
+
+    const { db } = c.get("ctx");
+
+    const query = c.req.query("q")?.trim();
+    if (!query)
+      return c.json({ error: "q query parameter is required", code: "INVALID_INPUT" }, 400);
+
+    const limit = Math.min(parseInt(c.req.query("limit") || "20", 10) || 20, 100);
+    const offset = parseInt(c.req.query("offset") || "0", 10) || 0;
+    const tagsParam = c.req.query("tags");
+
+    try {
+      const rows = await ftsSearch(db, user.id, query, {
+        kindFilter: c.req.query("kind") ? normalizeKind(c.req.query("kind")) : null,
+        categoryFilter: c.req.query("category") || null,
+        since: c.req.query("since") || null,
+        until: c.req.query("until") || null,
+        limit,
+        offset,
+      });
+
+      let results = rows.map((row) => {
+        const entry = formatEntry(row);
+        entry.score = Math.round((Number(row.score) || 0) * 1000) / 1000;
+        return entry;
+      });
+
+      // Client-side tag filtering (FTS doesn't natively filter by tag array)
+      if (tagsParam) {
+        const filterTags = tagsParam.split(",").map((t) => t.trim().toLowerCase());
+        results = results.filter((r) =>
+          r.tags.some((t) => filterTags.includes(t.toLowerCase())),
+        );
+      }
+
+      return c.json({ results, count: results.length, query });
+    } catch (err) {
+      console.error(`[vault-api] Search error: ${err.message}`);
+      return c.json({ error: "Search failed", code: "SEARCH_FAILED" }, 500);
+    }
+  });
+
   // ─── POST /api/vault/search — FTS search (vector search: future) ─────────────
 
   api.post("/api/vault/search", async (c) => {
@@ -669,6 +722,64 @@ export function createVaultApiRoutes() {
     } catch (err) {
       console.error(`[vault-api] Search error: ${err.message}`);
       return c.json({ error: "Search failed", code: "SEARCH_FAILED" }, 500);
+    }
+  });
+
+  // ─── POST /api/vault/recall — Signal-based retrieval ────────────────────────
+
+  api.post("/api/vault/recall", async (c) => {
+    const user = c.get("authUser");
+    if (!user) return c.json({ error: "Unauthorized", code: "UNAUTHORIZED" }, 401);
+    if (!hasScope(user.scopes ?? ["*"], "vault:read")) {
+      return c.json(
+        { error: "Insufficient scope. Required: vault:read", code: "FORBIDDEN" },
+        403,
+      );
+    }
+
+    const { db } = c.get("ctx");
+
+    const data = await c.req.json().catch(() => null);
+    if (!data)
+      return c.json({ error: "Invalid JSON body", code: "INVALID_INPUT" }, 400);
+    if (!data.signal?.trim())
+      return c.json({ error: "signal is required", code: "INVALID_INPUT" }, 400);
+
+    const signalType = data.signal_type || "prompt";
+    const maxHints = Math.min(parseInt(data.max_hints || 3, 10) || 3, 10);
+    const bucket = data.bucket || null;
+
+    try {
+      // Use FTS search on the signal text
+      const rows = await ftsSearch(db, user.id, data.signal, {
+        limit: maxHints,
+        offset: 0,
+      });
+
+      const hints = rows.map((row) => ({
+        id: row.id,
+        kind: row.kind,
+        title: row.title || null,
+        body_preview: row.body ? row.body.slice(0, 200) : null,
+        tags: row.tags ? JSON.parse(row.tags) : [],
+        score: Math.round((Number(row.score) || 0) * 1000) / 1000,
+      }));
+
+      // If bucket filter requested, post-filter
+      const filtered = bucket
+        ? hints.filter((h) =>
+            h.tags.some((t) => t.toLowerCase() === `bucket:${bucket.toLowerCase()}`),
+          )
+        : hints;
+
+      return c.json({
+        hints: filtered,
+        count: filtered.length,
+        signal_type: signalType,
+      });
+    } catch (err) {
+      console.error(`[vault-api] Recall error: ${err.message}`);
+      return c.json({ error: "Recall failed", code: "RECALL_FAILED" }, 500);
     }
   });
 

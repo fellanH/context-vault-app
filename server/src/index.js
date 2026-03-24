@@ -15,6 +15,8 @@ import { cors } from "hono/cors";
 import { secureHeaders } from "hono/secure-headers";
 import { bodyLimit } from "hono/body-limit";
 import { createAuth } from "./auth/auth.js";
+import { vaultAuth } from "./middleware/auth.js";
+import { vaultDbRouting } from "./middleware/vault-db.js";
 import { requestLogger } from "./middleware/logger.js";
 import { createWorkerCtx } from "./storage/workers-ctx.js";
 import { createManagementRoutes } from "./server/management.js";
@@ -132,10 +134,14 @@ app.route("/", createManagementRoutes());
 
 // ─── Vault REST API ──────────────────────────────────────────────────────────
 
+app.use("/api/vault/*", vaultAuth());
+app.use("/api/vault/*", vaultDbRouting());
 app.route("/", createVaultApiRoutes());
 
 // ─── Team Vault REST API ────────────────────────────────────────────────────
 
+app.use("/api/team/*", vaultAuth());
+// Team vaults use the shared DB (team_id isolation), not per-user DBs
 app.route("/", createTeamVaultApiRoutes());
 
 // ─── Root redirect ───────────────────────────────────────────────────────────

@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useCallback, useMemo } from "react";
 import { useParams, Link } from "react-router";
 import {
   Card,
@@ -22,6 +22,11 @@ import {
   Terminal,
   Copy,
   Check,
+  CheckCircle2,
+  Circle,
+  Lightbulb,
+  X,
+  Sparkles,
 } from "lucide-react";
 import {
   useTeam,
@@ -58,6 +63,226 @@ function CopyBlock({ value }: { value: string }) {
         )}
       </Button>
     </div>
+  );
+}
+
+interface OnboardingStep {
+  id: string;
+  label: string;
+  description: string;
+  command: string | ((teamId: string) => string);
+}
+
+const ONBOARDING_STEPS: OnboardingStep[] = [
+  {
+    id: "install",
+    label: "Install context-vault",
+    description: "Install the CLI globally via npm",
+    command: "npm install -g context-vault",
+  },
+  {
+    id: "connect",
+    label: "Connect to hosted API",
+    description: "Link your CLI to the hosted vault service",
+    command: "context-vault remote setup",
+  },
+  {
+    id: "join",
+    label: "Join this team",
+    description: "Connect your local vault to this team",
+    command: (teamId: string) => `context-vault team join ${teamId}`,
+  },
+  {
+    id: "verify",
+    label: "Verify connection",
+    description: "Check that everything is working",
+    command: "context-vault team status",
+  },
+];
+
+function getOnboardingState(teamId: string): Record<string, boolean> {
+  try {
+    const raw = localStorage.getItem(`cv-team-onboard-${teamId}`);
+    return raw ? JSON.parse(raw) : {};
+  } catch {
+    return {};
+  }
+}
+
+function setOnboardingStepDone(teamId: string, stepId: string) {
+  const state = getOnboardingState(teamId);
+  state[stepId] = true;
+  localStorage.setItem(`cv-team-onboard-${teamId}`, JSON.stringify(state));
+}
+
+function OnboardingWizard({ teamId }: { teamId: string }) {
+  const [state, setState] = useState(() => getOnboardingState(teamId));
+
+  const completedCount = ONBOARDING_STEPS.filter((s) => state[s.id]).length;
+  const allDone = completedCount === ONBOARDING_STEPS.length;
+
+  const handleMarkDone = useCallback(
+    (stepId: string) => {
+      setOnboardingStepDone(teamId, stepId);
+      setState(getOnboardingState(teamId));
+    },
+    [teamId],
+  );
+
+  if (allDone) {
+    return (
+      <div className="flex items-center gap-2 px-4 py-3 rounded-lg border border-primary/20 bg-primary/5">
+        <CheckCircle2 className="size-4 text-primary shrink-0" />
+        <span className="text-sm font-medium text-primary">Setup complete</span>
+        <span className="text-xs text-muted-foreground ml-1">
+          All {ONBOARDING_STEPS.length} steps done
+        </span>
+      </div>
+    );
+  }
+
+  return (
+    <Card>
+      <CardHeader className="pb-3">
+        <div className="flex items-center gap-2">
+          <Sparkles className="size-4 text-primary" />
+          <CardTitle className="text-base">Welcome! Set up your CLI</CardTitle>
+        </div>
+        <div className="flex items-center gap-2 mt-1.5">
+          <div className="flex-1 h-1.5 bg-muted rounded-full overflow-hidden">
+            <div
+              className="h-full bg-primary rounded-full transition-all"
+              style={{ width: `${(completedCount / ONBOARDING_STEPS.length) * 100}%` }}
+            />
+          </div>
+          <span className="text-xs text-muted-foreground shrink-0">
+            {completedCount} of {ONBOARDING_STEPS.length}
+          </span>
+        </div>
+      </CardHeader>
+      <CardContent>
+        <div className="space-y-4">
+          {ONBOARDING_STEPS.map((step, idx) => {
+            const done = !!state[step.id];
+            const cmd =
+              typeof step.command === "function"
+                ? step.command(teamId)
+                : step.command;
+            return (
+              <div key={step.id} className="space-y-2">
+                <div className="flex items-start gap-3">
+                  <button
+                    onClick={() => !done && handleMarkDone(step.id)}
+                    className="mt-0.5 shrink-0"
+                    aria-label={done ? `Step ${idx + 1} complete` : `Mark step ${idx + 1} as done`}
+                  >
+                    {done ? (
+                      <CheckCircle2 className="size-5 text-primary" />
+                    ) : (
+                      <Circle className="size-5 text-muted-foreground hover:text-primary transition-colors" />
+                    )}
+                  </button>
+                  <div className="flex-1 min-w-0">
+                    <p className={`text-sm font-medium ${done ? "line-through text-muted-foreground" : ""}`}>
+                      {idx + 1}. {step.label}
+                    </p>
+                    <p className="text-xs text-muted-foreground mt-0.5">
+                      {step.description}
+                    </p>
+                    {!done && (
+                      <div className="mt-2">
+                        <CopyBlock value={cmd} />
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
+function isTipsDismissed(teamId: string): boolean {
+  return localStorage.getItem(`cv-team-tips-${teamId}-dismissed`) === "true";
+}
+
+function dismissTips(teamId: string) {
+  localStorage.setItem(`cv-team-tips-${teamId}-dismissed`, "true");
+}
+
+function GettingStartedTips({ teamId }: { teamId: string }) {
+  const [dismissed, setDismissed] = useState(() => isTipsDismissed(teamId));
+
+  if (dismissed) return null;
+
+  return (
+    <Card>
+      <CardHeader className="pb-3">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <Lightbulb className="size-4 text-amber-500" />
+            <CardTitle className="text-base">Getting Started</CardTitle>
+          </div>
+          <Button
+            variant="ghost"
+            size="icon"
+            className="size-7"
+            onClick={() => {
+              dismissTips(teamId);
+              setDismissed(true);
+            }}
+            aria-label="Dismiss tips"
+          >
+            <X className="size-3.5" />
+          </Button>
+        </div>
+        <p className="text-xs text-muted-foreground mt-1">
+          Your team vault is empty. Here are some ways to get started:
+        </p>
+      </CardHeader>
+      <CardContent>
+        <div className="space-y-3">
+          <div className="space-y-1.5">
+            <p className="text-sm font-medium">Seed from your personal vault</p>
+            <p className="text-xs text-muted-foreground">
+              Publish entries from your local vault to the team
+            </p>
+            <CopyBlock value={`context-vault publish --team ${teamId}`} />
+          </div>
+          <div className="flex items-center justify-between py-2">
+            <div>
+              <p className="text-sm font-medium">Invite your first teammate</p>
+              <p className="text-xs text-muted-foreground">
+                Share knowledge with your colleagues
+              </p>
+            </div>
+            <Button variant="outline" size="sm" asChild className="text-xs shrink-0">
+              <a href="#invite-section">
+                <UserPlus className="size-3 mr-1.5" />
+                Invite
+              </a>
+            </Button>
+          </div>
+          <div className="flex items-center justify-between py-2">
+            <div>
+              <p className="text-sm font-medium">Browse team vault</p>
+              <p className="text-xs text-muted-foreground">
+                See what your team has shared
+              </p>
+            </div>
+            <Button variant="outline" size="sm" asChild className="text-xs shrink-0">
+              <Link to={`/team/${teamId}/vault`}>
+                <Database className="size-3 mr-1.5" />
+                Browse
+              </Link>
+            </Button>
+          </div>
+        </div>
+      </CardContent>
+    </Card>
   );
 }
 
@@ -264,34 +489,43 @@ export function TeamDashboard() {
         </CardContent>
       </Card>
 
-      {/* CLI Setup */}
-      <Card>
-        <CardHeader className="pb-3">
-          <div className="flex items-center gap-2">
-            <Terminal className="size-4 text-muted-foreground" />
-            <CardTitle className="text-base">Setup CLI</CardTitle>
-          </div>
-          <p className="text-xs text-muted-foreground mt-1">
-            Run these commands to connect your local vault to this team.
-          </p>
-        </CardHeader>
-        <CardContent>
-          <div className="space-y-3">
-            <div className="space-y-1">
-              <p className="text-xs text-muted-foreground">1. Install or update context-vault</p>
-              <CopyBlock value="npx context-vault setup" />
+      {/* CLI Setup / Onboarding Wizard */}
+      {isOwnerOrAdmin ? (
+        <Card>
+          <CardHeader className="pb-3">
+            <div className="flex items-center gap-2">
+              <Terminal className="size-4 text-muted-foreground" />
+              <CardTitle className="text-base">Setup CLI</CardTitle>
             </div>
-            <div className="space-y-1">
-              <p className="text-xs text-muted-foreground">2. Connect to the hosted API</p>
-              <CopyBlock value="context-vault remote setup" />
+            <p className="text-xs text-muted-foreground mt-1">
+              Run these commands to connect your local vault to this team.
+            </p>
+          </CardHeader>
+          <CardContent>
+            <div className="space-y-3">
+              <div className="space-y-1">
+                <p className="text-xs text-muted-foreground">1. Install or update context-vault</p>
+                <CopyBlock value="npx context-vault setup" />
+              </div>
+              <div className="space-y-1">
+                <p className="text-xs text-muted-foreground">2. Connect to the hosted API</p>
+                <CopyBlock value="context-vault remote setup" />
+              </div>
+              <div className="space-y-1">
+                <p className="text-xs text-muted-foreground">3. Join this team</p>
+                <CopyBlock value={`context-vault team join ${id}`} />
+              </div>
             </div>
-            <div className="space-y-1">
-              <p className="text-xs text-muted-foreground">3. Join this team</p>
-              <CopyBlock value={`context-vault team join ${id}`} />
-            </div>
-          </div>
-        </CardContent>
-      </Card>
+          </CardContent>
+        </Card>
+      ) : (
+        <OnboardingWizard teamId={id!} />
+      )}
+
+      {/* Getting Started Tips — owners only, vault < 5 entries */}
+      {isOwnerOrAdmin && (vaultStatus?.entries.total ?? 0) < 5 && id && (
+        <GettingStartedTips teamId={id} />
+      )}
 
       {/* Members List */}
       <Card>

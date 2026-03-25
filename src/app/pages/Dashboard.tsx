@@ -9,7 +9,7 @@ import {
 import { Badge } from "../components/ui/badge";
 import { Button } from "../components/ui/button";
 import { UsageMeter } from "../components/UsageMeter";
-import { useEntries, useUsage, useApiKeys } from "../lib/hooks";
+import { useEntries, useUsage, useApiKeys, useTeams, useTeamVaultStatus, type Team } from "../lib/hooks";
 import { useAuth } from "../lib/auth";
 import {
   getOnboardingSteps,
@@ -41,6 +41,9 @@ import {
   ChevronUp,
   ScrollText,
   RotateCcw,
+  Users,
+  Database,
+  ArrowRight,
 } from "lucide-react";
 import { toast } from "sonner";
 import changelogData from "../../data/changelog.json";
@@ -76,17 +79,50 @@ const MCP_JSON_SNIPPET = `{
   }
 }`;
 
+function TeamRow({ team }: { team: Team }) {
+  const { data: vaultStatus } = useTeamVaultStatus(team.id);
+  return (
+    <Link
+      to={`/team/${team.id}`}
+      className="flex items-center justify-between py-3 px-3 rounded-lg hover:bg-muted/50 transition-colors border border-transparent hover:border-border"
+    >
+      <div className="flex items-center gap-3 min-w-0">
+        <div className="size-9 rounded-lg bg-primary/10 text-primary flex items-center justify-center text-sm font-medium shrink-0">
+          {team.name[0]?.toUpperCase() ?? "T"}
+        </div>
+        <div className="min-w-0">
+          <p className="text-sm font-medium truncate">{team.name}</p>
+          <div className="flex items-center gap-2 mt-0.5">
+            <Badge variant="outline" className="text-[10px]">{team.role}</Badge>
+          </div>
+        </div>
+      </div>
+      <div className="flex items-center gap-4 shrink-0 ml-3">
+        <div className="text-right">
+          <p className="text-sm font-medium">{vaultStatus?.entries.total ?? "-"}</p>
+          <p className="text-[10px] text-muted-foreground">entries</p>
+        </div>
+        <ArrowRight className="size-4 text-muted-foreground" />
+      </div>
+    </Link>
+  );
+}
+
 export function Dashboard() {
   const { user } = useAuth();
   const navigate = useNavigate();
-  const { data: entriesData, isLoading: entriesLoading } = useEntries({
+  const {
+    data: entriesData,
+    isLoading: entriesLoading,
+    isError: entriesError,
+  } = useEntries({
     limit: 10,
   });
   // Fetch a larger set for recall stats (API may not yet return recall fields)
   const { data: recallData, isLoading: recallLoading } = useEntries({
     limit: 100,
   });
-  const { data: usage, isLoading: usageLoading } = useUsage();
+  const { data: usage, isLoading: usageLoading, isError: usageError } = useUsage();
   const { data: apiKeys } = useApiKeys();
 
   const entriesUsed = usage?.entries.used ?? 0;
@@ -231,6 +267,8 @@ export function Dashboard() {
   })();
   const maxBucketCount = Math.max(...recallDistribution.map((b) => b.count), 1);
 
+  const { data: teams, isLoading: teamsLoading } = useTeams();
+
   const entries = entriesData?.entries ?? [];
 
   return (
@@ -277,6 +315,21 @@ export function Dashboard() {
               <X className="size-3.5" />
             </Button>
           </div>
+        </div>
+      )}
+
+      {/* Error banner */}
+      {(usageError || entriesError) && (
+        <div className="flex items-center gap-3 rounded-lg border border-destructive/30 bg-destructive/5 px-4 py-3">
+          <span className="text-sm text-destructive">
+            Failed to load some dashboard data. Check your connection and refresh.
+          </span>
+          <button
+            onClick={() => window.location.reload()}
+            className="ml-auto text-xs text-muted-foreground hover:text-foreground shrink-0"
+          >
+            Refresh
+          </button>
         </div>
       )}
 
@@ -678,6 +731,56 @@ export function Dashboard() {
           })}
         </div>
       )}
+
+      {/* Your Teams */}
+      <Card>
+        <CardHeader className="pb-3">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <CardTitle className="text-base">Your Teams</CardTitle>
+              <Users className="size-4 text-muted-foreground" />
+            </div>
+            {(teams ?? []).length > 0 && (
+              <Button variant="ghost" size="sm" asChild className="text-xs h-7">
+                <Link to="/team/new">
+                  <Plus className="size-3 mr-1" />
+                  New team
+                </Link>
+              </Button>
+            )}
+          </div>
+        </CardHeader>
+        <CardContent>
+          {teamsLoading ? (
+            <div className="space-y-3 py-2">
+              {[1, 2].map((i) => (
+                <div key={i} className="h-12 bg-muted rounded animate-pulse" />
+              ))}
+            </div>
+          ) : (teams ?? []).length === 0 ? (
+            <div className="text-center py-6 space-y-3">
+              <Database className="size-8 text-muted-foreground mx-auto" />
+              <div>
+                <p className="text-sm text-muted-foreground">
+                  Create a team to share knowledge with your colleagues
+                </p>
+              </div>
+              <Button variant="outline" size="sm" asChild>
+                <Link to="/team/new">
+                  <Plus className="size-4 mr-1.5" />
+                  Create a team
+                </Link>
+              </Button>
+            </div>
+          ) : (
+            <div className="space-y-1">
+              {(teams ?? []).map((team) => (
+                <TeamRow key={team.id} team={team} />
+              ))}
+            </div>
+          )}
+        </CardContent>
+      </Card>
 
       {/* Recall Stats */}
       <Card>

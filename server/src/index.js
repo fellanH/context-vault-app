@@ -146,7 +146,10 @@ app.route("/", createTeamVaultApiRoutes());
 
 // ─── Root redirect ───────────────────────────────────────────────────────────
 
-app.get("/", (c) => c.redirect("https://context-vault.com", 302));
+app.get("/", (c) => {
+  const appURL = c.env.APP_URL || "https://app.context-vault.com";
+  return c.redirect(appURL, 302);
+});
 
 // ─── Workers export ──────────────────────────────────────────────────────────
 

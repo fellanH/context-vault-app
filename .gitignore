@@ -12,7 +12,10 @@ dist/
 docs/
 memory/
 scripts/
+!scripts/changelog.mjs
 skills/
 skills-lock.json
 .dev.vars
 .wrangler/
+.vercel
+.env*.local

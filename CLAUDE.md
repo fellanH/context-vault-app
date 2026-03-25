@@ -11,12 +11,12 @@ This is **not a monorepo/workspace**. Two independent packages share one git rep
 
 `npm install` at the root installs only frontend deps. Backend deps live in `server/node_modules` (`cd server && npm install`). The two packages have separate `node_modules`, separate build pipelines, and separate deploy targets. Pages never touches `server/`; the Workers build never touches `src/`. This is intentional.
 
-The frontend points at `https://api.context-vault.com` (set via `VITE_API_URL` or hardcoded default). Auth uses better-auth with email/password + GitHub social login. Teams use better-auth's organization plugin. API keys use better-auth's apiKey plugin.
+The frontend points at `https://api.context-vault.com` (set via `VITE_API_URL` or hardcoded default). Auth uses better-auth with email/password + Google social login. Teams use better-auth's organization plugin. API keys use better-auth's apiKey plugin.
 
 ## Stack
 
 React 19, React Router 7, React Query, Tailwind CSS 4, shadcn/ui, Vite 6.
-Deployed to Cloudflare Pages. Git integration auto-deploys on push.
+Deployed to Cloudflare Pages via `npm run deploy` (wrangler). No GitHub auto-deploy.
 
 ## Dev
 
@@ -43,26 +43,31 @@ work on main -> git push origin main -> auto-deploys to app.context-vault.com
 
 ## Deploy
 
-### Shipping to production
+Deploy is always manual via wrangler (no GitHub auto-deploy).
 
 ```bash
-git push origin main     # triggers Cloudflare Pages auto-deploy to production
+npm run deploy    # builds + deploys to Cloudflare Pages production
 ```
 
 ### Cloudflare Pages project
 
 Project: `context-vault-app`
 Production branch: `main` -> `app.context-vault.com`
-Preview branch: `dev` -> `context-vault-app.pages.dev`
 Build command: `npm run build`
 Build output: `dist`
 Env vars: set in Cloudflare dashboard (Pages > Settings > Environment Variables).
 
-### Manual deploy (when needed)
+### Deploy protocol (for agents)
 
-```bash
-npm run deploy    # builds + deploys to Pages production
-```
+When shipping user-visible changes:
+
+1. Update the changelog: `node scripts/changelog.mjs <version> <title> <bullet1> [bullet2] ...`
+2. Commit changelog + code changes
+3. Push and deploy: `git push origin main && npm run deploy`
+
+Or in one step: `node scripts/changelog.mjs --deploy <version> <title> <bullets...>`
+
+Changelog lives in `src/data/changelog.json`. The latest entry powers the "What's New" banner on the dashboard. Bump the version for each deploy that includes user-visible changes. Skip for internal refactors or bug fixes that users wouldn't notice.
 
 ## Commit prefixes
 

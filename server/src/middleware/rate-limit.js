@@ -1,7 +1,7 @@
 /**
  * rate-limit.js — Tier-based rate limiting and usage metering.
  *
- * Free tier: 200 requests/day, 50 MB storage.
+ * Free tier: 5,000 requests/day, 1 GB storage.
  * Pro / Team tier: Unlimited requests.
  *
  * Uses Turso (libSQL) via c.get("ctx").db instead of better-sqlite3.

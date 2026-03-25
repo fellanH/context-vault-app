@@ -29,6 +29,7 @@ import { ulid, embed, embedBatch } from "../storage/workers-ctx.js";
 import { validateEntryInput } from "../validation/entry-validation.js";
 import { hasScope } from "../auth/scopes.js";
 import { generateOpenApiSpec } from "../api/openapi.js";
+import { getTierLimits } from "../billing/stripe.js";
 
 // ─── Inlined constants (formerly @context-vault/core/constants) ──────────────
 
@@ -41,8 +42,6 @@ const MAX_META_LENGTH = 10240; // 10 KB
 const MAX_SOURCE_LENGTH = 200;
 const MAX_IDENTITY_KEY_LENGTH = 200;
 
-// Free-tier entry limit
-const FREE_TIER_MAX_ENTRIES = 1000;
 
 // ─── Inlined helpers (formerly @context-vault/core) ──────────────────────────
 
@@ -82,8 +81,9 @@ export function categoryFor(kind) {
  * @returns {boolean}
  */
 function isOverEntryLimit(tier, currentCount) {
-  if (tier === "pro" || tier === "team") return false;
-  return currentCount >= FREE_TIER_MAX_ENTRIES;
+  const limits = getTierLimits(tier);
+  if (!Number.isFinite(limits.maxEntries)) return false;
+  return currentCount >= limits.maxEntries;
 }
 
 // ─── Format helpers ───────────────────────────────────────────────────────────

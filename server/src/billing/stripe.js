@@ -149,22 +149,22 @@ export async function createPortalSession(env, { customerId, returnUrl }) {
 
 const TIER_LIMITS = {
   free: {
-    maxEntries: 0, // Free tier is local-only, no hosted entries
-    storageMb: 0,
-    requestsPerDay: 0,
-    apiKeys: 0,
-    exportEnabled: false,
+    maxEntries: 10000,
+    storageMb: 1024, // 1 GB
+    requestsPerDay: 5000,
+    apiKeys: Infinity,
+    exportEnabled: true,
   },
   pro: {
-    maxEntries: 10000,
-    storageMb: 5120,
+    maxEntries: 50000,
+    storageMb: 10240, // 10 GB
     requestsPerDay: Infinity,
     apiKeys: Infinity,
     exportEnabled: true,
   },
   team: {
-    maxEntries: 50000,
-    storageMb: 20480,
+    maxEntries: 200000,
+    storageMb: 51200, // 50 GB
     requestsPerDay: Infinity,
     apiKeys: Infinity,
     exportEnabled: true,

@@ -78,9 +78,9 @@ const SCOPE_OPTIONS = [
 ] as const;
 
 const RATE_LIMITS: Record<string, { requestsPerDay: string; requestsPerMin: string; entries: string }> = {
-  free: { requestsPerDay: "200 / day", requestsPerMin: "~3 / min", entries: "1,000" },
-  pro: { requestsPerDay: "Unlimited", requestsPerMin: "Unlimited", entries: "Unlimited" },
-  team: { requestsPerDay: "Unlimited", requestsPerMin: "Unlimited", entries: "Unlimited" },
+  free: { requestsPerDay: "5,000 / day", requestsPerMin: "~80 / min", entries: "10,000" },
+  pro: { requestsPerDay: "Unlimited", requestsPerMin: "Unlimited", entries: "50,000" },
+  team: { requestsPerDay: "Unlimited", requestsPerMin: "Unlimited", entries: "200,000" },
 };
 
 function ScopeBadges({ scopes }: { scopes: string[] }) {

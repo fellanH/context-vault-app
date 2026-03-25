@@ -14,20 +14,37 @@ export function getOnboardingSteps({
 }: OnboardingInputs): OnboardingStep[] {
   return [
     {
-      id: "connect-tools",
-      label: "Connect AI tools",
+      id: "create-api-key",
+      label: "Create an API key",
+      completed: hasMcpActivity || entriesUsed > 0,
+      description: "Generate a key to authenticate CLI and MCP connections",
+      action: "/settings/api-keys",
+      actionLabel: "Open API Keys",
+    },
+    {
+      id: "install-cli",
+      label: "Install context-vault CLI",
       completed: hasMcpActivity,
-      description:
-        "Run one command to configure Claude Code, Cursor, and other tools",
-      action: "copy-connect-command",
+      description: "Install globally with npm",
+      action: "copy-install-command",
       actionLabel: "Copy command",
     },
     {
-      id: "first-entry",
-      label: "Save your first entry",
-      completed: entriesUsed > 0,
-      action: "/vault/knowledge",
-      actionLabel: "Add entry",
+      id: "run-setup",
+      label: "Run setup",
+      completed: hasMcpActivity,
+      description:
+        "Detects your AI tools and installs MCP config automatically",
+      action: "copy-setup-command",
+      actionLabel: "Copy command",
+    },
+    {
+      id: "connect-hosted",
+      label: "Connect to hosted vault",
+      completed: hasMcpActivity,
+      description: "Link your CLI to this hosted vault with your API key",
+      action: "copy-remote-setup-command",
+      actionLabel: "Copy command",
     },
     {
       id: "install-extension",
@@ -78,21 +95,29 @@ export function getMigrationSteps({
 }: OnboardingInputs): OnboardingStep[] {
   return [
     {
-      id: "import-local-vault",
-      label: "Import your local vault",
-      completed: entriesUsed > 0,
-      description:
-        "Upload your markdown files to bring entries into the hosted vault",
-      action: "/import",
-      actionLabel: "Open import",
+      id: "create-api-key",
+      label: "Create an API key",
+      completed: hasMcpActivity || entriesUsed > 0,
+      description: "Generate a key to connect your local vault to hosted",
+      action: "/settings/api-keys",
+      actionLabel: "Open API Keys",
     },
     {
-      id: "switch-to-hosted-mcp",
-      label: "Switch to hosted MCP",
+      id: "connect-hosted",
+      label: "Connect to hosted vault",
       completed: hasMcpActivity,
       description:
-        "Update your tools to use the hosted MCP. Works from any machine.",
-      action: "copy-connect-command",
+        "Run context-vault remote setup and enter your API URL + key",
+      action: "copy-remote-setup-command",
+      actionLabel: "Copy command",
+    },
+    {
+      id: "sync-vault",
+      label: "Sync your local vault",
+      completed: entriesUsed > 0,
+      description:
+        "Stream your local vault entries to hosted with one command",
+      action: "copy-sync-command",
       actionLabel: "Copy command",
     },
   ];

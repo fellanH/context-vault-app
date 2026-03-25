@@ -60,24 +60,30 @@ function dismissWhatsNew(): void {
 }
 
 const STEP_ICONS: Record<string, React.ElementType> = {
-  "connect-tools": Link2,
-  "first-entry": Plus,
+  "create-api-key": Key,
+  "install-cli": Zap,
+  "run-setup": Link2,
+  "connect-hosted": Link2,
   "install-extension": ExternalLink,
-  "import-local-vault": Upload,
-  "switch-to-hosted-mcp": Link2,
+  "sync-vault": Upload,
 };
 
 const MCP_JSON_SNIPPET = `{
   "mcpServers": {
     "context-vault": {
-      "command": "npx",
-      "args": ["-y", "context-vault", "mcp"],
-      "env": {
-        "CV_API_KEY": "YOUR_API_KEY"
-      }
+      "command": "context-vault",
+      "args": ["serve"],
+      "env": {}
     }
   }
 }`;
+
+const CLI_COMMANDS = {
+  install: "npm install -g context-vault",
+  setup: "context-vault setup",
+  remoteSetup: "context-vault remote setup",
+  remoteSync: "context-vault remote sync",
+} as const;
 
 function TeamRow({ team }: { team: Team }) {
   const { data: vaultStatus } = useTeamVaultStatus(team.id);
@@ -158,18 +164,22 @@ export function Dashboard() {
     setShowOnboarding(false);
   };
 
-  const connectCommand = "npx context-vault connect --key YOUR_API_KEY";
-
-  const copyConnectCommand = async () => {
-    await navigator.clipboard.writeText(connectCommand);
+  const copyCommand = async (cmd: string) => {
+    await navigator.clipboard.writeText(cmd);
     setCopiedCmd(true);
-    toast.success("Connect command copied");
+    toast.success("Command copied");
     setTimeout(() => setCopiedCmd(false), 2000);
   };
 
   const handleStepAction = (step: (typeof steps)[0]) => {
-    if (step.action === "copy-connect-command") {
-      copyConnectCommand();
+    if (step.action === "copy-install-command") {
+      copyCommand(CLI_COMMANDS.install);
+    } else if (step.action === "copy-setup-command") {
+      copyCommand(CLI_COMMANDS.setup);
+    } else if (step.action === "copy-remote-setup-command") {
+      copyCommand(CLI_COMMANDS.remoteSetup);
+    } else if (step.action === "copy-sync-command") {
+      copyCommand(CLI_COMMANDS.remoteSync);
     } else if (step.action === "chrome-web-store-link") {
       window.open(
         "https://chromewebstore.google.com/detail/context-vault",
@@ -393,7 +403,7 @@ export function Dashboard() {
               </div>
             ) : (
               /* Step grid — shown after mode is selected */
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3">
                 {steps.map((step) => {
                   const Icon = STEP_ICONS[step.id] || FileText;
 
@@ -440,7 +450,7 @@ export function Dashboard() {
                           className="w-full gap-1.5 text-xs"
                           onClick={() => handleStepAction(step)}
                         >
-                          {step.action === "copy-connect-command" &&
+                          {step.action?.startsWith("copy-") &&
                             (copiedCmd ? (
                               <Check className="size-3" />
                             ) : (
@@ -459,13 +469,26 @@ export function Dashboard() {
                           Mark as installed
                         </Button>
                       )}
-                      {!step.completed &&
-                        (step.id === "connect-tools" ||
-                          step.id === "switch-to-hosted-mcp") && (
-                          <pre className="bg-muted p-2 rounded text-[10px] font-mono overflow-x-auto">
-                            {connectCommand}
-                          </pre>
-                        )}
+                      {!step.completed && step.action === "copy-install-command" && (
+                        <pre className="bg-muted p-2 rounded text-[10px] font-mono overflow-x-auto">
+                          {CLI_COMMANDS.install}
+                        </pre>
+                      )}
+                      {!step.completed && step.action === "copy-setup-command" && (
+                        <pre className="bg-muted p-2 rounded text-[10px] font-mono overflow-x-auto">
+                          {CLI_COMMANDS.setup}
+                        </pre>
+                      )}
+                      {!step.completed && step.action === "copy-remote-setup-command" && (
+                        <pre className="bg-muted p-2 rounded text-[10px] font-mono overflow-x-auto">
+                          {CLI_COMMANDS.remoteSetup}
+                        </pre>
+                      )}
+                      {!step.completed && step.action === "copy-sync-command" && (
+                        <pre className="bg-muted p-2 rounded text-[10px] font-mono overflow-x-auto">
+                          {CLI_COMMANDS.remoteSync}
+                        </pre>
+                      )}
                     </div>
                   );
                 })}
@@ -525,7 +548,7 @@ export function Dashboard() {
                     1
                   </span>
                   <div className="space-y-1.5">
-                    <p className="text-sm">Get your API key</p>
+                    <p className="text-sm">Create an API key</p>
                     <Button
                       variant="outline"
                       size="sm"
@@ -546,15 +569,13 @@ export function Dashboard() {
                     2
                   </span>
                   <div className="space-y-1.5 flex-1 min-w-0">
-                    <p className="text-sm">
-                      Run this command in your terminal:
-                    </p>
+                    <p className="text-sm">Install the CLI:</p>
                     <div className="flex items-center gap-2 bg-muted rounded-md px-3 py-2">
                       <code className="text-xs font-mono flex-1 truncate">
-                        {connectCommand}
+                        {CLI_COMMANDS.install}
                       </code>
                       <button
-                        onClick={copyConnectCommand}
+                        onClick={() => copyCommand(CLI_COMMANDS.install)}
                         className="flex-shrink-0 text-muted-foreground hover:text-foreground transition-colors"
                         aria-label="Copy command"
                       >
@@ -568,16 +589,73 @@ export function Dashboard() {
                   </div>
                 </div>
 
-                {/* Step 3 — manual config */}
+                {/* Step 3 */}
                 <div className="flex items-start gap-3">
                   <span className="flex-shrink-0 w-5 h-5 rounded-full bg-muted text-muted-foreground text-xs flex items-center justify-center font-medium mt-0.5">
                     3
                   </span>
+                  <div className="space-y-1.5 flex-1 min-w-0">
+                    <p className="text-sm">
+                      Auto-detect and configure your AI tools:
+                    </p>
+                    <div className="flex items-center gap-2 bg-muted rounded-md px-3 py-2">
+                      <code className="text-xs font-mono flex-1 truncate">
+                        {CLI_COMMANDS.setup}
+                      </code>
+                      <button
+                        onClick={() => copyCommand(CLI_COMMANDS.setup)}
+                        className="flex-shrink-0 text-muted-foreground hover:text-foreground transition-colors"
+                        aria-label="Copy command"
+                      >
+                        {copiedCmd ? (
+                          <Check className="size-3.5" />
+                        ) : (
+                          <Copy className="size-3.5" />
+                        )}
+                      </button>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Step 4 */}
+                <div className="flex items-start gap-3">
+                  <span className="flex-shrink-0 w-5 h-5 rounded-full bg-muted text-muted-foreground text-xs flex items-center justify-center font-medium mt-0.5">
+                    4
+                  </span>
+                  <div className="space-y-1.5 flex-1 min-w-0">
+                    <p className="text-sm">
+                      Connect to your hosted vault:
+                    </p>
+                    <div className="flex items-center gap-2 bg-muted rounded-md px-3 py-2">
+                      <code className="text-xs font-mono flex-1 truncate">
+                        {CLI_COMMANDS.remoteSetup}
+                      </code>
+                      <button
+                        onClick={() => copyCommand(CLI_COMMANDS.remoteSetup)}
+                        className="flex-shrink-0 text-muted-foreground hover:text-foreground transition-colors"
+                        aria-label="Copy command"
+                      >
+                        {copiedCmd ? (
+                          <Check className="size-3.5" />
+                        ) : (
+                          <Copy className="size-3.5" />
+                        )}
+                      </button>
+                    </div>
+                    <p className="text-[11px] text-muted-foreground">
+                      Prompts for your API URL and key interactively.
+                    </p>
+                  </div>
+                </div>
+
+                {/* Manual config fallback */}
+                <div className="flex items-start gap-3">
+                  <span className="flex-shrink-0 w-5 h-5" />
                   <div className="flex-1 min-w-0">
                     <details className="group">
                       <summary className="text-sm cursor-pointer list-none flex items-center gap-1.5 text-muted-foreground hover:text-foreground transition-colors">
                         <ChevronDown className="size-3.5 transition-transform group-open:rotate-180" />
-                        Or configure manually: Hosted MCP (JSON)
+                        Manual MCP config (JSON)
                       </summary>
                       <pre className="mt-2 bg-muted p-3 rounded-md text-[11px] font-mono overflow-x-auto">
                         {MCP_JSON_SNIPPET}

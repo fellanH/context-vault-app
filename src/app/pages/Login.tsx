@@ -4,7 +4,7 @@ import { Button } from "../components/ui/button";
 import { Input } from "../components/ui/input";
 import { Label } from "../components/ui/label";
 import { Card, CardContent } from "../components/ui/card";
-import { FolderOpen, Loader2, Github } from "lucide-react";
+import { FolderOpen, Loader2 } from "lucide-react";
 import { toast } from "sonner";
 import { setPendingFiles } from "../lib/pendingImport";
 import { authClient } from "../lib/auth-client";
@@ -15,7 +15,6 @@ export function Login() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [isGithubLoading, setIsGithubLoading] = useState(false);
   const [isGoogleLoading, setIsGoogleLoading] = useState(false);
   const folderInputRef = useRef<HTMLInputElement>(null);
 
@@ -49,19 +48,6 @@ export function Login() {
       toast.error("Sign-in failed");
     } finally {
       setIsSubmitting(false);
-    }
-  };
-
-  const handleGithubLogin = async () => {
-    setIsGithubLoading(true);
-    try {
-      await authClient.signIn.social({
-        provider: "github",
-        callbackURL: window.location.origin + "/",
-      });
-    } catch {
-      toast.error("GitHub sign-in failed");
-      setIsGithubLoading(false);
     }
   };
 
@@ -166,22 +152,6 @@ export function Login() {
                     <path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"/>
                   </svg>
                   Sign in with Google
-                </>
-              )}
-            </Button>
-
-            <Button
-              variant="outline"
-              className="w-full gap-2"
-              onClick={handleGithubLogin}
-              disabled={isGithubLoading}
-            >
-              {isGithubLoading ? (
-                <Loader2 className="size-4 animate-spin" />
-              ) : (
-                <>
-                  <Github className="size-4" />
-                  Sign in with GitHub
                 </>
               )}
             </Button>

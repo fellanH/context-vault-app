@@ -9,7 +9,7 @@ import {
   CardHeader,
   CardTitle,
 } from "../components/ui/card";
-import { Loader2, Github } from "lucide-react";
+import { Loader2 } from "lucide-react";
 import { toast } from "sonner";
 import { authClient } from "../lib/auth-client";
 import { hasPendingFiles, consumePendingFiles } from "../lib/pendingImport";
@@ -22,7 +22,6 @@ export function Register() {
   const [password, setPassword] = useState("");
   const [name, setName] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [isGithubLoading, setIsGithubLoading] = useState(false);
   const [isGoogleLoading, setIsGoogleLoading] = useState(false);
 
   const handleGoogleRegister = async () => {
@@ -38,22 +37,6 @@ export function Register() {
     } catch {
       toast.error("Google sign-up failed");
       setIsGoogleLoading(false);
-    }
-  };
-
-  const handleGithubRegister = async () => {
-    if (hasPendingFiles()) {
-      setOnboardingMode("migration");
-    }
-    setIsGithubLoading(true);
-    try {
-      await authClient.signIn.social({
-        provider: "github",
-        callbackURL: window.location.origin + "/",
-      });
-    } catch {
-      toast.error("GitHub sign-up failed");
-      setIsGithubLoading(false);
     }
   };
 
@@ -128,22 +111,6 @@ export function Register() {
                     <path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"/>
                   </svg>
                   Sign up with Google
-                </>
-              )}
-            </Button>
-
-            <Button
-              variant="outline"
-              className="w-full gap-2"
-              onClick={handleGithubRegister}
-              disabled={isGithubLoading}
-            >
-              {isGithubLoading ? (
-                <Loader2 className="size-4 animate-spin" />
-              ) : (
-                <>
-                  <Github className="size-4" />
-                  Sign up with GitHub
                 </>
               )}
             </Button>

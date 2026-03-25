@@ -8,7 +8,7 @@
  * Schema initialization is lazy (first request triggers it).
  */
 
-import { createTursoClient, initSchemas } from "./turso.js";
+import { createTursoClient, initSchemas, IMPORT_JOBS_SCHEMA } from "./turso.js";
 import { USER_VAULTS_SCHEMA } from "./user-vault-db.js";
 
 let schemasInitialized = false;
@@ -29,6 +29,12 @@ export async function createWorkerCtx(env) {
     await db.executeMultiple(USER_VAULTS_SCHEMA).catch((e) => {
       if (!e.message?.includes("already exists")) {
         console.warn(`[workers-ctx] user_vaults schema warning: ${e.message}`);
+      }
+    });
+    // Import jobs table (shared DB only)
+    await db.executeMultiple(IMPORT_JOBS_SCHEMA).catch((e) => {
+      if (!e.message?.includes("already exists")) {
+        console.warn(`[workers-ctx] import_jobs schema warning: ${e.message}`);
       }
     });
     schemasInitialized = true;
@@ -73,6 +79,30 @@ export async function embed(ai, text) {
   } catch (e) {
     console.error("[embed] Workers AI error:", e.message);
     return null;
+  }
+}
+
+/**
+ * Generate embedding vectors for a batch of texts using Cloudflare Workers AI.
+ * Workers AI supports up to 100 texts per call.
+ *
+ * @param {object} ai - Workers AI binding
+ * @param {string[]} texts - Array of texts to embed (max 100)
+ * @returns {Promise<Float32Array[]>} Array of 384-dim embeddings (parallel to input)
+ */
+export async function embedBatch(ai, texts) {
+  if (!ai || !texts.length) return [];
+  try {
+    const result = await ai.run("@cf/baai/bge-small-en-v1.5", {
+      text: texts,
+    });
+    if (result?.data) {
+      return result.data.map((vec) => new Float32Array(vec));
+    }
+    return [];
+  } catch (e) {
+    console.error("[embedBatch] Workers AI error:", e.message);
+    return [];
   }
 }
 

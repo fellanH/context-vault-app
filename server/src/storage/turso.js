@@ -102,6 +102,23 @@ export const VAULT_SCHEMA = `
   END;
 `;
 
+export const IMPORT_JOBS_SCHEMA = `
+  CREATE TABLE IF NOT EXISTS import_jobs (
+    id              TEXT PRIMARY KEY,
+    user_id         TEXT NOT NULL,
+    status          TEXT NOT NULL DEFAULT 'queued'
+                    CHECK(status IN ('queued', 'processing', 'complete', 'failed')),
+    total_entries   INTEGER NOT NULL DEFAULT 0,
+    entries_uploaded INTEGER NOT NULL DEFAULT 0,
+    entries_embedded INTEGER NOT NULL DEFAULT 0,
+    errors          TEXT,
+    created_at      TEXT DEFAULT (datetime('now')),
+    completed_at    TEXT
+  );
+
+  CREATE INDEX IF NOT EXISTS idx_import_jobs_user ON import_jobs(user_id, created_at DESC);
+`;
+
 // ─── Client ──────────────────────────────────────────────────────────────────
 
 /**
@@ -129,6 +146,9 @@ export async function initSchemas(client) {
   const migrations = [
     `ALTER TABLE vault ADD COLUMN team_id TEXT`,
     `CREATE INDEX IF NOT EXISTS idx_vault_team ON vault(team_id) WHERE team_id IS NOT NULL`,
+    `ALTER TABLE vault ADD COLUMN content_hash TEXT`,
+    `ALTER TABLE vault ADD COLUMN embedded INTEGER DEFAULT 1`,
+    `CREATE INDEX IF NOT EXISTS idx_vault_embedded ON vault(embedded) WHERE embedded = 0`,
   ];
   for (const sql of migrations) {
     try {

@@ -1,7 +1,7 @@
 /**
  * vault-api.js — REST API routes for vault operations (Cloudflare Workers / Turso).
  *
- * 12 endpoints:
+ * 15 endpoints:
  *   GET    /api/vault/entries          List/browse with filters + pagination
  *   GET    /api/vault/entries/:id      Get single entry by ULID
  *   POST   /api/vault/entries          Create entry
@@ -10,9 +10,12 @@
  *   POST   /api/vault/search           FTS search (vector search: future)
  *   POST   /api/vault/import/bulk      Bulk import entries (up to 500)
  *   POST   /api/vault/import           Single-entry import
+ *   POST   /api/vault/import/stream    NDJSON streaming import (async embedding)
  *   POST   /api/vault/ingest           Fetch URL and save as entry
- *   GET    /api/vault/manifest         Lightweight entry list for sync
+ *   GET    /api/vault/manifest         Lightweight entry list for sync (paginated)
  *   GET    /api/vault/status           Vault diagnostics + usage stats
+ *   GET    /api/vault/jobs/:id         Import job status
+ *   POST   /api/vault/jobs/:id/process Background embedding processor (self-fetch chain)
  *   GET    /api/vault/openapi.json     OpenAPI spec (unauthenticated)
  *
  * Context is accessed via c.get("ctx") -> { db, r2, ai, config, env }
@@ -20,8 +23,9 @@
  */
 
 import { Hono } from "hono";
+import { bodyLimit } from "hono/body-limit";
 import { queryAll, queryOne, execute } from "../storage/turso.js";
-import { ulid, embed } from "../storage/workers-ctx.js";
+import { ulid, embed, embedBatch } from "../storage/workers-ctx.js";
 import { validateEntryInput } from "../validation/entry-validation.js";
 import { hasScope } from "../auth/scopes.js";
 import { generateOpenApiSpec } from "../api/openapi.js";
@@ -134,12 +138,20 @@ export async function insertEntry(db, ai, data) {
   const meta = data.meta ? JSON.stringify(data.meta) : null;
   const now = new Date().toISOString().replace("T", " ").slice(0, 19);
 
+  // Compute content hash for sync diffing
+  const contentHash = await computeContentHash(
+    data.title || "",
+    data.body,
+    tags || "[]",
+    meta || "{}",
+  );
+
   await execute(
     db,
     `INSERT INTO vault
        (id, user_id, team_id, kind, category, title, body, meta, tags, source,
-        identity_key, expires_at, created_at, updated_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        identity_key, expires_at, content_hash, embedded, created_at, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?)`,
     [
       id,
       data.userId,
@@ -153,6 +165,7 @@ export async function insertEntry(db, ai, data) {
       data.source || "rest-api",
       data.identity_key || null,
       data.expires_at || null,
+      contentHash,
       now,
       now,
     ],
@@ -1029,14 +1042,25 @@ export function createVaultApiRoutes() {
 
     const { db } = c.get("ctx");
 
-    const rows = await queryAll(
-      db,
-      `SELECT id, kind, title, created_at FROM vault
+    const cursor = c.req.query("cursor") || null;
+    const limit = Math.min(parseInt(c.req.query("limit") || "10000", 10), 10000);
+
+    let sql = `SELECT id, kind, title, created_at, updated_at, content_hash FROM vault
        WHERE user_id = ?
-         AND (expires_at IS NULL OR expires_at > datetime('now'))
-       ORDER BY created_at DESC`,
-      [user.id],
-    );
+         AND (expires_at IS NULL OR expires_at > datetime('now'))`;
+    const args = [user.id];
+
+    if (cursor) {
+      sql += ` AND id > ?`;
+      args.push(cursor);
+    }
+
+    sql += ` ORDER BY id ASC LIMIT ?`;
+    args.push(limit);
+
+    const rows = await queryAll(db, sql, args);
+
+    const nextCursor = rows.length === limit ? rows[rows.length - 1].id : null;
 
     return c.json({
       entries: rows.map((r) => ({
@@ -1044,7 +1068,10 @@ export function createVaultApiRoutes() {
         kind: r.kind,
         title: r.title || null,
         created_at: r.created_at,
+        updated_at: r.updated_at || null,
+        content_hash: r.content_hash || null,
       })),
+      next_cursor: nextCursor,
     });
   });
 
@@ -1122,5 +1149,292 @@ export function createVaultApiRoutes() {
     }
   });
 
+  // ─── POST /api/vault/import/stream — NDJSON streaming import ────────────────
+  // Override global 512KB body limit: 16K entries at ~500 bytes each = ~8MB
+  api.post("/api/vault/import/stream", bodyLimit({ maxSize: 32 * 1024 * 1024 }), async (c) => {
+    const user = c.get("authUser");
+    if (!user) return c.json({ error: "Unauthorized", code: "UNAUTHORIZED" }, 401);
+    if (!hasScope(user.scopes ?? ["*"], "vault:write")) {
+      return c.json(
+        { error: "Insufficient scope. Required: vault:write", code: "FORBIDDEN" },
+        403,
+      );
+    }
+
+    const ctx = c.get("ctx");
+    const { db } = ctx;
+    const sharedDb = ctx.sharedDb || ctx.db;
+
+    // Entry limit enforcement for free tier
+    const countRow = await queryOne(
+      db,
+      "SELECT COUNT(*) as c FROM vault WHERE user_id = ?",
+      [user.id],
+    );
+    const entryCount = Number(countRow?.c ?? 0);
+    if (isOverEntryLimit(user.tier ?? "free", entryCount)) {
+      return c.json(
+        { error: "Entry limit reached. Upgrade to Pro.", code: "LIMIT_EXCEEDED" },
+        403,
+      );
+    }
+
+    // Create import job in shared DB
+    const jobId = ulid();
+    await execute(
+      sharedDb,
+      `INSERT INTO import_jobs (id, user_id, status) VALUES (?, ?, 'queued')`,
+      [jobId, user.id],
+    );
+
+    // Read NDJSON body
+    const body = await c.req.text();
+    const lines = body.split("\n").filter((line) => line.trim());
+    const errors = [];
+    let uploaded = 0;
+
+    const now = new Date().toISOString().replace("T", " ").slice(0, 19);
+
+    for (const line of lines) {
+      try {
+        const entry = JSON.parse(line);
+
+        const validationError = validateEntryInput(entry);
+        if (validationError) {
+          errors.push(`${entry.title || entry.id || "unknown"}: ${validationError.error}`);
+          continue;
+        }
+
+        const id = entry.id || ulid();
+        const kind = normalizeKind(entry.kind);
+        const category = categoryFor(kind);
+        const tags = entry.tags
+          ? JSON.stringify(Array.isArray(entry.tags) ? entry.tags : [])
+          : null;
+        const meta = entry.meta ? JSON.stringify(entry.meta) : null;
+        const contentHash = await computeContentHash(
+          entry.title || "",
+          entry.body,
+          tags || "[]",
+          meta || "{}",
+        );
+
+        // Upsert: if ID exists, update; otherwise insert
+        // Use INSERT OR REPLACE for simplicity
+        await execute(
+          db,
+          `INSERT OR REPLACE INTO vault
+             (id, user_id, kind, category, title, body, meta, tags, source,
+              identity_key, expires_at, content_hash, embedded, created_at, updated_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?)`,
+          [
+            id,
+            user.id,
+            kind,
+            category,
+            entry.title || null,
+            entry.body,
+            meta,
+            tags,
+            entry.source || "stream-import",
+            entry.identity_key || null,
+            entry.expires_at || null,
+            contentHash,
+            entry.created_at || now,
+            entry.updated_at || now,
+          ],
+        );
+        uploaded++;
+      } catch (err) {
+        errors.push(`line ${uploaded + errors.length + 1}: ${err.message}`);
+      }
+    }
+
+    // Update job with results
+    await execute(
+      sharedDb,
+      `UPDATE import_jobs
+       SET status = 'processing', total_entries = ?, entries_uploaded = ?,
+           errors = ?
+       WHERE id = ?`,
+      [uploaded, uploaded, errors.length ? JSON.stringify(errors.slice(0, 50)) : null, jobId],
+    );
+
+    // Fire-and-forget: trigger background embedding via self-fetch
+    const apiUrl = ctx.config.apiUrl;
+    const authHeader = c.req.header("Authorization") || "";
+    c.executionCtx.waitUntil(
+      fetch(`${apiUrl}/api/vault/jobs/${jobId}/process`, {
+        method: "POST",
+        headers: {
+          Authorization: authHeader,
+        },
+      }).catch((e) => {
+        console.error(`[stream-import] Failed to trigger embedding processor: ${e.message}`);
+      }),
+    );
+
+    return c.json({
+      job_id: jobId,
+      entries_uploaded: uploaded,
+      errors: errors.slice(0, 10),
+    });
+  });
+
+  // ─── GET /api/vault/jobs/:id — Import job status ────────────────────────────
+
+  api.get("/api/vault/jobs/:id", async (c) => {
+    const user = c.get("authUser");
+    if (!user) return c.json({ error: "Unauthorized", code: "UNAUTHORIZED" }, 401);
+
+    const ctx = c.get("ctx");
+    const sharedDb = ctx.sharedDb || ctx.db;
+    const jobId = c.req.param("id");
+
+    const job = await queryOne(
+      sharedDb,
+      `SELECT * FROM import_jobs WHERE id = ? AND user_id = ?`,
+      [jobId, user.id],
+    );
+
+    if (!job) {
+      return c.json({ error: "Job not found", code: "NOT_FOUND" }, 404);
+    }
+
+    return c.json({
+      id: job.id,
+      status: job.status,
+      total_entries: job.total_entries,
+      entries_uploaded: job.entries_uploaded,
+      entries_embedded: job.entries_embedded,
+      errors: job.errors ? JSON.parse(job.errors) : [],
+      created_at: job.created_at,
+      completed_at: job.completed_at || null,
+    });
+  });
+
+  // ─── POST /api/vault/jobs/:id/process — Background embedding processor ─────
+
+  api.post("/api/vault/jobs/:id/process", async (c) => {
+    const user = c.get("authUser");
+    if (!user) return c.json({ error: "Unauthorized", code: "UNAUTHORIZED" }, 401);
+
+    const ctx = c.get("ctx");
+    const { db, ai } = ctx;
+    const sharedDb = ctx.sharedDb || ctx.db;
+    const jobId = c.req.param("id");
+
+    // Verify job ownership
+    const job = await queryOne(
+      sharedDb,
+      `SELECT * FROM import_jobs WHERE id = ? AND user_id = ?`,
+      [jobId, user.id],
+    );
+    if (!job) {
+      return c.json({ error: "Job not found", code: "NOT_FOUND" }, 404);
+    }
+    if (job.status === "complete" || job.status === "failed") {
+      return c.json({ status: job.status, message: "Job already finished" });
+    }
+
+    // Fetch a batch of unembedded entries
+    const BATCH_SIZE = 100;
+    const rows = await queryAll(
+      db,
+      `SELECT id, title, body FROM vault
+       WHERE user_id = ? AND embedded = 0
+       ORDER BY id ASC LIMIT ?`,
+      [user.id, BATCH_SIZE],
+    );
+
+    if (rows.length === 0) {
+      // All done
+      const now = new Date().toISOString().replace("T", " ").slice(0, 19);
+      await execute(
+        sharedDb,
+        `UPDATE import_jobs SET status = 'complete', completed_at = ? WHERE id = ?`,
+        [now, jobId],
+      );
+      return c.json({ status: "complete", entries_embedded: job.entries_embedded });
+    }
+
+    // Build texts for batch embedding
+    const texts = rows.map(
+      (r) => `${r.title ? r.title + "\n" : ""}${r.body}`,
+    );
+
+    // Generate embeddings (results discarded for now; vector storage not yet implemented)
+    await embedBatch(ai, texts);
+
+    // Mark entries as embedded
+    const ids = rows.map((r) => r.id);
+    const placeholders = ids.map(() => "?").join(",");
+    await execute(
+      db,
+      `UPDATE vault SET embedded = 1 WHERE id IN (${placeholders})`,
+      ids,
+    );
+
+    // Update job progress
+    const newEmbedded = (job.entries_embedded || 0) + rows.length;
+    await execute(
+      sharedDb,
+      `UPDATE import_jobs SET entries_embedded = ? WHERE id = ?`,
+      [newEmbedded, jobId],
+    );
+
+    // If there might be more, chain another self-fetch
+    if (rows.length === BATCH_SIZE) {
+      const apiUrl = ctx.config.apiUrl;
+      const authHeader = c.req.header("Authorization") || "";
+      c.executionCtx.waitUntil(
+        fetch(`${apiUrl}/api/vault/jobs/${jobId}/process`, {
+          method: "POST",
+          headers: {
+            Authorization: authHeader,
+          },
+        }).catch((e) => {
+          console.error(`[embed-processor] Self-fetch chain error: ${e.message}`);
+        }),
+      );
+    } else {
+      // This was the last batch
+      const now = new Date().toISOString().replace("T", " ").slice(0, 19);
+      await execute(
+        sharedDb,
+        `UPDATE import_jobs SET status = 'complete', completed_at = ? WHERE id = ?`,
+        [now, jobId],
+      );
+    }
+
+    return c.json({
+      status: "processing",
+      batch_embedded: rows.length,
+      total_embedded: newEmbedded,
+    });
+  });
+
   return api;
+}
+
+// ─── Helpers ────────────────────────────────────────────────────────────────
+
+/**
+ * Compute SHA-256 content hash for sync diffing.
+ * Hash of: title || body || tags_json || meta_json
+ *
+ * @param {string} title
+ * @param {string} body
+ * @param {string} tagsJson
+ * @param {string} metaJson
+ * @returns {Promise<string>} Hex-encoded SHA-256 hash
+ */
+async function computeContentHash(title, body, tagsJson, metaJson) {
+  const content = `${title || ""}${body || ""}${tagsJson || "[]"}${metaJson || "{}"}`;
+  const encoded = new TextEncoder().encode(content);
+  const hashBuffer = await crypto.subtle.digest("SHA-256", encoded);
+  const hashArray = new Uint8Array(hashBuffer);
+  return Array.from(hashArray)
+    .map((b) => b.toString(16).padStart(2, "0"))
+    .join("");
 }

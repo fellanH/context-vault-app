@@ -113,12 +113,12 @@ export function getMigrationSteps({
     },
     {
       id: "sync-vault",
-      label: "Sync your local vault",
+      label: "Upload your vault",
       completed: entriesUsed > 0,
       description:
-        "Stream your local vault entries to hosted with one command",
-      action: "copy-sync-command",
-      actionLabel: "Copy command",
+        "Import your local vault entries via folder upload or CLI sync",
+      action: "/import",
+      actionLabel: "Open Import",
     },
   ];
 }

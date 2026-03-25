@@ -102,7 +102,7 @@ export function Changelog() {
           <p>
             Have a feature request or found a bug?{" "}
             <a
-              href="https://github.com/context-vault/app/issues"
+              href="https://github.com/fellanH/context-vault-app/issues"
               target="_blank"
               rel="noopener noreferrer"
               className="text-foreground hover:underline"

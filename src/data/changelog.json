@@ -1,5 +1,19 @@
 [
   {
+    "version": "1.0.0",
+    "date": "2026-03-25",
+    "title": "Hosted Vaults, Team Sharing & Dashboard Overhaul",
+    "bullets": [
+      "Hosted personal vault: your knowledge accessible via API from any AI tool, anywhere. Per-user isolated databases with Turso.",
+      "Team vaults: share knowledge with your team. Category-aware publishing (knowledge copies, entities federate, events stay private), privacy scan before publish, conflict detection.",
+      "Scalable sync: NDJSON streaming import handles 16K+ entries in under 60 seconds. Background embedding, delta sync, and offline queue.",
+      "Dashboard overhaul: consolidated onboarding into a single card, 2-column layout for connected users, trimmed empty states.",
+      "Agent rules v1.1: team sharing heuristics prompt agents to suggest publishing useful entries to the team vault.",
+      "CLI team commands: seed, join, leave, status. Sync and pull for remote vaults.",
+      "Google sign-in added. Streamlined registration with better error handling for existing accounts."
+    ]
+  },
+  {
     "version": "0.6.0",
     "date": "2026-02-23",
     "title": "API Key Scopes & MCP Activity Dashboard",

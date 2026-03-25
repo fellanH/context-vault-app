@@ -38,11 +38,9 @@ import {
   CircleCheck,
   Link2,
   ChevronDown,
-  ChevronUp,
   ScrollText,
   RotateCcw,
   Users,
-  Database,
   ArrowRight,
 } from "lucide-react";
 import { toast } from "sonner";
@@ -124,7 +122,6 @@ export function Dashboard() {
   } = useEntries({
     limit: 10,
   });
-  // Fetch a larger set for recall stats (API may not yet return recall fields)
   const { data: recallData, isLoading: recallLoading } = useEntries({
     limit: 100,
   });
@@ -151,13 +148,13 @@ export function Dashboard() {
     () => !isWhatsNewDismissed(),
   );
   const [copiedCmd, setCopiedCmd] = useState(false);
-  // Used only to trigger re-render after markExtensionInstalled() writes to localStorage
   const [, setExtensionInstalled] = useState(false);
-  const [showConnectGuide, setShowConnectGuide] = useState(false);
 
   const allComplete = steps.every((s) => s.completed);
   const completedCount = steps.filter((s) => s.completed).length;
   const totalRequired = steps.length;
+
+  const isConnected = allComplete || hasMcpActivity;
 
   const handleDismiss = () => {
     dismissOnboarding();
@@ -245,7 +242,7 @@ export function Dashboard() {
       ]
     : [];
 
-  // ─── Recall Stats ────────────────────────────────────────────────────────
+  // Recall Stats
   const allEntries = recallData?.entries ?? [];
   const recalledEntries = allEntries.filter((e) => (e.recallCount ?? 0) > 0);
   const totalRecalls = recalledEntries.reduce(
@@ -256,10 +253,8 @@ export function Dashboard() {
     .slice()
     .sort((a, b) => (b.recallCount ?? 0) - (a.recallCount ?? 0))
     .slice(0, 5);
-  // API readiness: if no entries have recall data, show placeholder
   const hasRecallData = recalledEntries.length > 0;
 
-  // Distribution buckets for the bar chart
   const recallDistribution = (() => {
     const buckets = [
       { label: "0", min: 0, max: 0, count: 0 },
@@ -280,21 +275,31 @@ export function Dashboard() {
   const { data: teams, isLoading: teamsLoading } = useTeams();
 
   const entries = entriesData?.entries ?? [];
+  const firstName = user?.name ? user.name.split(" ")[0] : null;
 
   return (
     <div className="p-6 space-y-6 max-w-5xl mx-auto">
+      {/* Header */}
       <div>
-        <h1 className="text-2xl font-semibold mb-1">
-          {user?.name ? `Welcome, ${user.name.split(" ")[0]}` : "Dashboard"}
-        </h1>
-        <p className="text-sm text-muted-foreground">
-          {allComplete
-            ? "Here's your vault at a glance."
-            : "Get started by completing the steps below."}
-        </p>
+        <div className="flex items-center gap-2">
+          <h1 className="text-2xl font-semibold">
+            {firstName ? `Welcome, ${firstName}` : "Dashboard"}
+          </h1>
+          {hasMcpActivity && (
+            <span className="inline-flex items-center gap-1.5 text-xs text-green-600 dark:text-green-400 bg-green-500/10 px-2 py-0.5 rounded-full">
+              <span className="size-1.5 rounded-full bg-green-500" />
+              Connected
+            </span>
+          )}
+        </div>
+        {!isConnected && (
+          <p className="text-sm text-muted-foreground mt-1">
+            Get started by completing the steps below.
+          </p>
+        )}
       </div>
 
-      {/* What's New banner — dismissable per release */}
+      {/* What's New banner */}
       {showWhatsNew && (
         <div className="flex items-center justify-between rounded-lg border border-primary/20 bg-primary/5 px-4 py-3">
           <div className="flex items-center gap-2.5">
@@ -343,408 +348,199 @@ export function Dashboard() {
         </div>
       )}
 
-      {/* Onboarding Journey — hidden once dismissed or all steps complete */}
-      {showOnboarding && !allComplete && (
-        <Card>
-          <CardHeader className="pb-3">
-            <div className="flex items-center justify-between">
-              <div>
-                <CardTitle className="text-base">Getting Started</CardTitle>
-                {onboardingMode !== null && (
-                  <p className="text-xs text-muted-foreground mt-1">
-                    {completedCount} of {totalRequired} steps complete
-                  </p>
-                )}
-              </div>
-              <Button
-                variant="ghost"
-                size="icon"
-                className="size-7"
-                onClick={handleDismiss}
-                aria-label="Dismiss getting started"
-              >
-                <X className="size-3.5" />
-              </Button>
-            </div>
-          </CardHeader>
-          <CardContent>
-            {onboardingMode === null ? (
-              /* Mode selector — shown before the user picks a path */
-              <div className="space-y-3">
-                <p className="text-sm text-muted-foreground">
-                  How are you setting up Context Vault?
-                </p>
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                  <button
-                    onClick={() => handleSelectMode("new")}
-                    className="text-left rounded-lg border border-border p-4 space-y-1.5 hover:border-primary/40 hover:bg-muted/40 transition-colors"
-                  >
-                    <p className="text-sm font-medium">
-                      I&apos;m new, set me up from scratch
-                    </p>
-                    <p className="text-xs text-muted-foreground">
-                      Start fresh. We&apos;ll walk you through connecting your
-                      AI tools.
-                    </p>
-                  </button>
-                  <button
-                    onClick={() => handleSelectMode("migration")}
-                    className="text-left rounded-lg border border-border p-4 space-y-1.5 hover:border-primary/40 hover:bg-muted/40 transition-colors"
-                  >
-                    <p className="text-sm font-medium">
-                      I use context-vault/core locally
-                    </p>
-                    <p className="text-xs text-muted-foreground">
-                      Already running core locally? Sync your vault and switch
-                      to hosted MCP.
-                    </p>
-                  </button>
-                </div>
-              </div>
-            ) : (
-              /* Step grid — shown after mode is selected */
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3">
-                {steps.map((step) => {
-                  const Icon = STEP_ICONS[step.id] || FileText;
-
-                  return (
-                    <div
-                      key={step.id}
-                      className={`relative rounded-lg border p-4 space-y-3 transition-colors ${
-                        step.completed
-                          ? "border-primary/20 bg-primary/5"
-                          : "border-border hover:border-primary/30"
-                      }`}
-                    >
-                      <div className="flex items-center justify-between">
-                        <div
-                          className={`rounded-full p-2 ${
-                            step.completed
-                              ? "bg-primary/10 text-primary"
-                              : "bg-muted text-muted-foreground"
-                          }`}
-                        >
-                          {step.completed ? (
-                            <CircleCheck className="size-4" />
-                          ) : (
-                            <Icon className="size-4" />
-                          )}
-                        </div>
-                      </div>
-                      <div>
-                        <p
-                          className={`text-sm font-medium ${step.completed ? "text-muted-foreground line-through" : ""}`}
-                        >
-                          {step.label}
-                        </p>
-                        {step.description && (
-                          <p className="text-xs text-muted-foreground mt-0.5">
-                            {step.description}
-                          </p>
-                        )}
-                      </div>
-                      {!step.completed && step.action && (
-                        <Button
-                          variant="secondary"
-                          size="sm"
-                          className="w-full gap-1.5 text-xs"
-                          onClick={() => handleStepAction(step)}
-                        >
-                          {step.action?.startsWith("copy-") &&
-                            (copiedCmd ? (
-                              <Check className="size-3" />
-                            ) : (
-                              <Copy className="size-3" />
-                            ))}
-                          {step.actionLabel || "Go"}
-                        </Button>
-                      )}
-                      {!step.completed && step.id === "install-extension" && (
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          className="w-full text-xs text-muted-foreground"
-                          onClick={handleMarkExtensionInstalled}
-                        >
-                          Mark as installed
-                        </Button>
-                      )}
-                      {!step.completed && step.action === "copy-install-command" && (
-                        <pre className="bg-muted p-2 rounded text-[10px] font-mono overflow-x-auto">
-                          {CLI_COMMANDS.install}
-                        </pre>
-                      )}
-                      {!step.completed && step.action === "copy-setup-command" && (
-                        <pre className="bg-muted p-2 rounded text-[10px] font-mono overflow-x-auto">
-                          {CLI_COMMANDS.setup}
-                        </pre>
-                      )}
-                      {!step.completed && step.action === "copy-remote-setup-command" && (
-                        <pre className="bg-muted p-2 rounded text-[10px] font-mono overflow-x-auto">
-                          {CLI_COMMANDS.remoteSetup}
-                        </pre>
-                      )}
-                      {!step.completed && step.action === "copy-sync-command" && (
-                        <pre className="bg-muted p-2 rounded text-[10px] font-mono overflow-x-auto">
-                          {CLI_COMMANDS.remoteSync}
-                        </pre>
-                      )}
-                    </div>
-                  );
-                })}
-              </div>
-            )}
-          </CardContent>
-        </Card>
-      )}
-
-      {/* Connect AI Tools — always visible */}
-      <Card>
-        <CardContent className="pt-4">
-          {hasMcpActivity && !showConnectGuide ? (
-            /* Connected — compact row */
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-2">
-                <CircleCheck className="size-4 text-green-500" />
-                <span className="text-sm font-medium text-green-600 dark:text-green-400">
-                  AI tools connected
-                </span>
-              </div>
-              <Button
-                variant="ghost"
-                size="sm"
-                className="text-xs gap-1"
-                onClick={() => setShowConnectGuide(true)}
-              >
-                View setup guide
-                <ChevronDown className="size-3" />
-              </Button>
-            </div>
-          ) : (
-            /* Full setup instructions */
-            <div className="space-y-4">
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-2">
-                  <Zap className="size-4 text-primary" />
-                  <h3 className="text-sm font-semibold">Connect AI Tools</h3>
-                </div>
-                {hasMcpActivity && (
+      {/* ── New user layout ── */}
+      {!isConnected && (
+        <>
+          {/* Onboarding card (full width) */}
+          {showOnboarding && !allComplete && (
+            <Card>
+              <CardHeader className="pb-3">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <CardTitle className="text-base">Getting Started</CardTitle>
+                    {onboardingMode !== null && (
+                      <p className="text-xs text-muted-foreground mt-1">
+                        {completedCount} of {totalRequired} steps complete
+                      </p>
+                    )}
+                  </div>
                   <Button
                     variant="ghost"
-                    size="sm"
-                    className="text-xs gap-1"
-                    onClick={() => setShowConnectGuide(false)}
+                    size="icon"
+                    className="size-7"
+                    onClick={handleDismiss}
+                    aria-label="Dismiss getting started"
                   >
-                    Collapse
-                    <ChevronUp className="size-3" />
+                    <X className="size-3.5" />
                   </Button>
+                </div>
+              </CardHeader>
+              <CardContent>
+                {onboardingMode === null ? (
+                  <div className="space-y-3">
+                    <p className="text-sm text-muted-foreground">
+                      How are you setting up Context Vault?
+                    </p>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                      <button
+                        onClick={() => handleSelectMode("new")}
+                        className="text-left rounded-lg border border-border p-4 space-y-1.5 hover:border-primary/40 hover:bg-muted/40 transition-colors"
+                      >
+                        <p className="text-sm font-medium">
+                          I&apos;m new, set me up from scratch
+                        </p>
+                        <p className="text-xs text-muted-foreground">
+                          Start fresh. We&apos;ll walk you through connecting your
+                          AI tools.
+                        </p>
+                      </button>
+                      <button
+                        onClick={() => handleSelectMode("migration")}
+                        className="text-left rounded-lg border border-border p-4 space-y-1.5 hover:border-primary/40 hover:bg-muted/40 transition-colors"
+                      >
+                        <p className="text-sm font-medium">
+                          I use context-vault/core locally
+                        </p>
+                        <p className="text-xs text-muted-foreground">
+                          Already running core locally? Sync your vault and switch
+                          to hosted MCP.
+                        </p>
+                      </button>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="space-y-4">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3">
+                      {steps.map((step) => {
+                        const Icon = STEP_ICONS[step.id] || FileText;
+
+                        return (
+                          <div
+                            key={step.id}
+                            className={`relative rounded-lg border p-4 space-y-3 transition-colors ${
+                              step.completed
+                                ? "border-primary/20 bg-primary/5"
+                                : "border-border hover:border-primary/30"
+                            }`}
+                          >
+                            <div className="flex items-center justify-between">
+                              <div
+                                className={`rounded-full p-2 ${
+                                  step.completed
+                                    ? "bg-primary/10 text-primary"
+                                    : "bg-muted text-muted-foreground"
+                                }`}
+                              >
+                                {step.completed ? (
+                                  <CircleCheck className="size-4" />
+                                ) : (
+                                  <Icon className="size-4" />
+                                )}
+                              </div>
+                            </div>
+                            <div>
+                              <p
+                                className={`text-sm font-medium ${step.completed ? "text-muted-foreground line-through" : ""}`}
+                              >
+                                {step.label}
+                              </p>
+                              {step.description && (
+                                <p className="text-xs text-muted-foreground mt-0.5">
+                                  {step.description}
+                                </p>
+                              )}
+                            </div>
+                            {!step.completed && step.action && (
+                              <Button
+                                variant="secondary"
+                                size="sm"
+                                className="w-full gap-1.5 text-xs"
+                                onClick={() => handleStepAction(step)}
+                              >
+                                {step.action?.startsWith("copy-") &&
+                                  (copiedCmd ? (
+                                    <Check className="size-3" />
+                                  ) : (
+                                    <Copy className="size-3" />
+                                  ))}
+                                {step.actionLabel || "Go"}
+                              </Button>
+                            )}
+                            {!step.completed && step.id === "install-extension" && (
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                className="w-full text-xs text-muted-foreground"
+                                onClick={handleMarkExtensionInstalled}
+                              >
+                                Mark as installed
+                              </Button>
+                            )}
+                            {!step.completed && step.action === "copy-install-command" && (
+                              <pre className="bg-muted p-2 rounded text-[10px] font-mono overflow-x-auto">
+                                {CLI_COMMANDS.install}
+                              </pre>
+                            )}
+                            {!step.completed && step.action === "copy-setup-command" && (
+                              <>
+                                <pre className="bg-muted p-2 rounded text-[10px] font-mono overflow-x-auto">
+                                  {CLI_COMMANDS.setup}
+                                </pre>
+                                <details className="group">
+                                  <summary className="text-[10px] cursor-pointer list-none flex items-center gap-1 text-muted-foreground hover:text-foreground transition-colors">
+                                    <ChevronDown className="size-3 transition-transform group-open:rotate-180" />
+                                    Manual MCP config (JSON)
+                                  </summary>
+                                  <pre className="mt-1.5 bg-muted p-2 rounded text-[10px] font-mono overflow-x-auto">
+                                    {MCP_JSON_SNIPPET}
+                                  </pre>
+                                </details>
+                              </>
+                            )}
+                            {!step.completed && step.action === "copy-remote-setup-command" && (
+                              <pre className="bg-muted p-2 rounded text-[10px] font-mono overflow-x-auto">
+                                {CLI_COMMANDS.remoteSetup}
+                              </pre>
+                            )}
+                            {!step.completed && step.action === "copy-sync-command" && (
+                              <pre className="bg-muted p-2 rounded text-[10px] font-mono overflow-x-auto">
+                                {CLI_COMMANDS.remoteSync}
+                              </pre>
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
+                    <p className="text-xs text-muted-foreground">
+                      Works with: <span className="text-foreground">Claude Code</span>{" "}
+                      · <span className="text-foreground">Cursor</span> ·{" "}
+                      <span className="text-foreground">Windsurf</span> ·{" "}
+                      <span className="text-foreground">Zed</span>
+                    </p>
+                  </div>
                 )}
-              </div>
+              </CardContent>
+            </Card>
+          )}
 
-              <div className="space-y-4">
-                {/* Step 1 */}
-                <div className="flex items-start gap-3">
-                  <span className="flex-shrink-0 w-5 h-5 rounded-full bg-muted text-muted-foreground text-xs flex items-center justify-center font-medium mt-0.5">
-                    1
-                  </span>
-                  <div className="space-y-1.5">
-                    <p className="text-sm">Create an API key</p>
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      asChild
-                      className="text-xs h-7"
-                    >
-                      <Link to="/settings/api-keys">
-                        Open API Keys
-                        <ExternalLink className="size-3 ml-1.5" />
-                      </Link>
-                    </Button>
-                  </div>
-                </div>
-
-                {/* Step 2 */}
-                <div className="flex items-start gap-3">
-                  <span className="flex-shrink-0 w-5 h-5 rounded-full bg-muted text-muted-foreground text-xs flex items-center justify-center font-medium mt-0.5">
-                    2
-                  </span>
-                  <div className="space-y-1.5 flex-1 min-w-0">
-                    <p className="text-sm">Install the CLI:</p>
-                    <div className="flex items-center gap-2 bg-muted rounded-md px-3 py-2">
-                      <code className="text-xs font-mono flex-1 truncate">
-                        {CLI_COMMANDS.install}
-                      </code>
-                      <button
-                        onClick={() => copyCommand(CLI_COMMANDS.install)}
-                        className="flex-shrink-0 text-muted-foreground hover:text-foreground transition-colors"
-                        aria-label="Copy command"
-                      >
-                        {copiedCmd ? (
-                          <Check className="size-3.5" />
-                        ) : (
-                          <Copy className="size-3.5" />
-                        )}
-                      </button>
-                    </div>
-                  </div>
-                </div>
-
-                {/* Step 3 */}
-                <div className="flex items-start gap-3">
-                  <span className="flex-shrink-0 w-5 h-5 rounded-full bg-muted text-muted-foreground text-xs flex items-center justify-center font-medium mt-0.5">
-                    3
-                  </span>
-                  <div className="space-y-1.5 flex-1 min-w-0">
-                    <p className="text-sm">
-                      Auto-detect and configure your AI tools:
-                    </p>
-                    <div className="flex items-center gap-2 bg-muted rounded-md px-3 py-2">
-                      <code className="text-xs font-mono flex-1 truncate">
-                        {CLI_COMMANDS.setup}
-                      </code>
-                      <button
-                        onClick={() => copyCommand(CLI_COMMANDS.setup)}
-                        className="flex-shrink-0 text-muted-foreground hover:text-foreground transition-colors"
-                        aria-label="Copy command"
-                      >
-                        {copiedCmd ? (
-                          <Check className="size-3.5" />
-                        ) : (
-                          <Copy className="size-3.5" />
-                        )}
-                      </button>
-                    </div>
-                  </div>
-                </div>
-
-                {/* Step 4 */}
-                <div className="flex items-start gap-3">
-                  <span className="flex-shrink-0 w-5 h-5 rounded-full bg-muted text-muted-foreground text-xs flex items-center justify-center font-medium mt-0.5">
-                    4
-                  </span>
-                  <div className="space-y-1.5 flex-1 min-w-0">
-                    <p className="text-sm">
-                      Connect to your hosted vault:
-                    </p>
-                    <div className="flex items-center gap-2 bg-muted rounded-md px-3 py-2">
-                      <code className="text-xs font-mono flex-1 truncate">
-                        {CLI_COMMANDS.remoteSetup}
-                      </code>
-                      <button
-                        onClick={() => copyCommand(CLI_COMMANDS.remoteSetup)}
-                        className="flex-shrink-0 text-muted-foreground hover:text-foreground transition-colors"
-                        aria-label="Copy command"
-                      >
-                        {copiedCmd ? (
-                          <Check className="size-3.5" />
-                        ) : (
-                          <Copy className="size-3.5" />
-                        )}
-                      </button>
-                    </div>
-                    <p className="text-[11px] text-muted-foreground">
-                      Prompts for your API URL and key interactively.
-                    </p>
-                  </div>
-                </div>
-
-                {/* Manual config fallback */}
-                <div className="flex items-start gap-3">
-                  <span className="flex-shrink-0 w-5 h-5" />
-                  <div className="flex-1 min-w-0">
-                    <details className="group">
-                      <summary className="text-sm cursor-pointer list-none flex items-center gap-1.5 text-muted-foreground hover:text-foreground transition-colors">
-                        <ChevronDown className="size-3.5 transition-transform group-open:rotate-180" />
-                        Manual MCP config (JSON)
-                      </summary>
-                      <pre className="mt-2 bg-muted p-3 rounded-md text-[11px] font-mono overflow-x-auto">
-                        {MCP_JSON_SNIPPET}
-                      </pre>
-                    </details>
-                  </div>
-                </div>
-              </div>
-
-              <p className="text-xs text-muted-foreground">
-                Works with: <span className="text-foreground">Claude Code</span>{" "}
-                · <span className="text-foreground">Cursor</span> ·{" "}
-                <span className="text-foreground">Windsurf</span> ·{" "}
-                <span className="text-foreground">Zed</span>
-              </p>
+          {/* Show getting started link when dismissed but not complete */}
+          {!showOnboarding && !allComplete && (
+            <div className="text-center">
+              <button
+                className="text-xs text-muted-foreground hover:text-foreground transition-colors"
+                onClick={() => {
+                  resetOnboarding();
+                  setShowOnboarding(true);
+                }}
+              >
+                Show getting started guide
+              </button>
             </div>
           )}
-        </CardContent>
-      </Card>
-
-      {/* MCP Activity — shows today/week stats or setup CTA */}
-      <Card>
-        <CardHeader className="pb-2">
-          <div className="flex items-center gap-2">
-            <CardTitle className="text-xs font-medium text-muted-foreground">
-              MCP Activity
-            </CardTitle>
-            <Zap className="size-3.5 text-muted-foreground ml-auto" />
-          </div>
-        </CardHeader>
-        <CardContent>
-          {!usageLoading && !hasMcpActivity ? (
-            <div className="flex flex-col gap-2 py-1">
-              <p className="text-sm text-muted-foreground">
-                No MCP calls recorded yet.
-              </p>
-              <Button variant="outline" size="sm" asChild className="w-fit">
-                <Link to="/settings/api-keys">
-                  Connect AI tools
-                  <ExternalLink className="size-3 ml-1.5" />
-                </Link>
-              </Button>
-            </div>
-          ) : (
-            <div className="flex items-center gap-6">
-              <div>
-                <p className="text-2xl font-semibold">
-                  {usageLoading ? (
-                    <span className="inline-block h-7 w-10 bg-muted rounded animate-pulse" />
-                  ) : (
-                    mcpCallsToday
-                  )}
-                </p>
-                <p className="text-xs text-muted-foreground mt-0.5">Today</p>
-              </div>
-              <div className="w-px h-8 bg-border" />
-              <div>
-                <p className="text-2xl font-semibold">
-                  {usageLoading ? (
-                    <span className="inline-block h-7 w-10 bg-muted rounded animate-pulse" />
-                  ) : (
-                    mcpCallsThisWeek
-                  )}
-                </p>
-                <p className="text-xs text-muted-foreground mt-0.5">
-                  This week
-                </p>
-              </div>
-            </div>
-          )}
-        </CardContent>
-      </Card>
-
-      {/* Show getting started guide link — visible when onboarding card is hidden but not all done */}
-      {!showOnboarding && !allComplete && (
-        <div className="text-center">
-          <button
-            className="text-xs text-muted-foreground hover:text-foreground transition-colors"
-            onClick={() => {
-              resetOnboarding();
-              setShowOnboarding(true);
-            }}
-          >
-            Show getting started guide
-          </button>
-        </div>
+        </>
       )}
 
-      {/* Usage Overview */}
+      {/* Usage Overview (always visible) */}
       {usageLoading ? (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
           {[1, 2, 3, 4].map((i) => (
@@ -810,320 +606,326 @@ export function Dashboard() {
         </div>
       )}
 
-      {/* Your Teams */}
-      <Card>
-        <CardHeader className="pb-3">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-2">
-              <CardTitle className="text-base">Your Teams</CardTitle>
-              <Users className="size-4 text-muted-foreground" />
-            </div>
-            {(teams ?? []).length > 0 && (
-              <Button variant="ghost" size="sm" asChild className="text-xs h-7">
-                <Link to="/team/new">
-                  <Plus className="size-3 mr-1" />
-                  New team
-                </Link>
-              </Button>
-            )}
-          </div>
-        </CardHeader>
-        <CardContent>
-          {teamsLoading ? (
-            <div className="space-y-3 py-2">
-              {[1, 2].map((i) => (
-                <div key={i} className="h-12 bg-muted rounded animate-pulse" />
-              ))}
-            </div>
-          ) : (teams ?? []).length === 0 ? (
-            <div className="text-center py-6 space-y-3">
-              <Database className="size-8 text-muted-foreground mx-auto" />
-              <div>
-                <p className="text-sm text-muted-foreground">
-                  Create a team to share knowledge with your colleagues
-                </p>
-              </div>
-              <Button variant="outline" size="sm" asChild>
-                <Link to="/team/new">
-                  <Plus className="size-4 mr-1.5" />
-                  Create a team
-                </Link>
-              </Button>
-            </div>
-          ) : (
-            <div className="space-y-1">
-              {(teams ?? []).map((team) => (
-                <TeamRow key={team.id} team={team} />
-              ))}
-            </div>
-          )}
-        </CardContent>
-      </Card>
-
-      {/* Recall Stats */}
-      <Card>
-        <CardHeader className="pb-3">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-2">
-              <CardTitle className="text-base">Recall Tracking</CardTitle>
-              <RotateCcw className="size-4 text-muted-foreground" />
-            </div>
-            {!hasRecallData && !recallLoading && (
-              <Badge variant="outline" className="text-[10px]">
-                Awaiting API data
-              </Badge>
-            )}
-          </div>
-        </CardHeader>
-        <CardContent>
-          {recallLoading ? (
-            <div className="space-y-3 py-2">
-              {[1, 2, 3].map((i) => (
-                <div key={i} className="h-4 w-48 bg-muted rounded animate-pulse" />
-              ))}
-            </div>
-          ) : !hasRecallData ? (
-            <div className="space-y-4">
-              <p className="text-sm text-muted-foreground">
-                Recall tracking shows how often your entries are retrieved by AI
-                agents. Data will appear here once the API returns{" "}
-                <code className="text-xs bg-muted px-1 py-0.5 rounded">
-                  recall_count
-                </code>
-                ,{" "}
-                <code className="text-xs bg-muted px-1 py-0.5 rounded">
-                  recall_sessions
-                </code>
-                , and{" "}
-                <code className="text-xs bg-muted px-1 py-0.5 rounded">
-                  last_recalled_at
-                </code>{" "}
-                fields on entries.
-              </p>
-              <div className="grid grid-cols-3 gap-4">
-                <div className="text-center p-3 rounded-lg bg-muted/50">
-                  <p className="text-2xl font-semibold text-muted-foreground/50">
-                    --
-                  </p>
-                  <p className="text-xs text-muted-foreground mt-1">
-                    Total recalls
-                  </p>
+      {/* ── Connected user layout ── */}
+      {isConnected && (
+        <>
+          {/* Row 1: Recent Activity + MCP Activity */}
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+            {/* Recent Activity */}
+            <Card>
+              <CardHeader className="pb-3">
+                <div className="flex items-center justify-between">
+                  <CardTitle className="text-base">Recent Activity</CardTitle>
+                  {entries.length > 0 && (
+                    <Button variant="ghost" size="sm" asChild className="text-xs h-7">
+                      <Link to="/vault/knowledge">View all</Link>
+                    </Button>
+                  )}
                 </div>
-                <div className="text-center p-3 rounded-lg bg-muted/50">
-                  <p className="text-2xl font-semibold text-muted-foreground/50">
-                    --
-                  </p>
-                  <p className="text-xs text-muted-foreground mt-1">
-                    Entries recalled
-                  </p>
-                </div>
-                <div className="text-center p-3 rounded-lg bg-muted/50">
-                  <p className="text-2xl font-semibold text-muted-foreground/50">
-                    --
-                  </p>
-                  <p className="text-xs text-muted-foreground mt-1">
-                    Recall rate
-                  </p>
-                </div>
-              </div>
-            </div>
-          ) : (
-            <div className="space-y-5">
-              {/* Summary stats */}
-              <div className="grid grid-cols-3 gap-4">
-                <div className="text-center p-3 rounded-lg bg-muted/50">
-                  <p className="text-2xl font-semibold">{totalRecalls}</p>
-                  <p className="text-xs text-muted-foreground mt-1">
-                    Total recalls
-                  </p>
-                </div>
-                <div className="text-center p-3 rounded-lg bg-muted/50">
-                  <p className="text-2xl font-semibold">
-                    {recalledEntries.length}
-                  </p>
-                  <p className="text-xs text-muted-foreground mt-1">
-                    Entries recalled
-                  </p>
-                </div>
-                <div className="text-center p-3 rounded-lg bg-muted/50">
-                  <p className="text-2xl font-semibold">
-                    {allEntries.length > 0
-                      ? `${Math.round((recalledEntries.length / allEntries.length) * 100)}%`
-                      : "0%"}
-                  </p>
-                  <p className="text-xs text-muted-foreground mt-1">
-                    Recall rate
-                  </p>
-                </div>
-              </div>
-
-              {/* Distribution bar chart */}
-              <div>
-                <p className="text-xs font-medium text-muted-foreground mb-2">
-                  Recall distribution
-                </p>
-                <div className="flex items-end gap-2 h-20">
-                  {recallDistribution.map((bucket) => (
-                    <div
-                      key={bucket.label}
-                      className="flex-1 flex flex-col items-center gap-1"
-                    >
-                      <span className="text-[10px] text-muted-foreground">
-                        {bucket.count}
-                      </span>
-                      <div
-                        className="w-full bg-primary/20 rounded-t transition-all"
-                        style={{
-                          height: `${Math.max((bucket.count / maxBucketCount) * 56, 2)}px`,
-                        }}
-                      >
-                        <div
-                          className="w-full bg-primary rounded-t"
-                          style={{
-                            height: `${Math.max((bucket.count / maxBucketCount) * 56, 2)}px`,
-                          }}
-                        />
-                      </div>
-                      <span className="text-[10px] text-muted-foreground">
-                        {bucket.label}
-                      </span>
-                    </div>
-                  ))}
-                </div>
-              </div>
-
-              {/* Top recalled entries */}
-              {topRecalled.length > 0 && (
-                <div>
-                  <p className="text-xs font-medium text-muted-foreground mb-2">
-                    Most recalled entries
-                  </p>
-                  <div className="space-y-1.5">
-                    {topRecalled.map((entry) => (
-                      <div
-                        key={entry.id}
-                        className="flex items-center justify-between py-1.5 px-2 rounded hover:bg-muted/30"
-                      >
-                        <div className="flex items-center gap-2 min-w-0">
-                          <span className="text-sm truncate">{entry.title}</span>
-                          <Badge variant="secondary" className="text-[10px] shrink-0">
-                            {entry.kind}
-                          </Badge>
+              </CardHeader>
+              <CardContent>
+                {entriesLoading ? (
+                  <div className="space-y-3 py-2">
+                    {[1, 2, 3].map((i) => (
+                      <div key={i} className="flex items-center justify-between py-2">
+                        <div className="flex items-center gap-3">
+                          <div className="h-4 w-48 bg-muted rounded animate-pulse" />
+                          <div className="h-4 w-16 bg-muted rounded animate-pulse" />
                         </div>
-                        <div className="flex items-center gap-3 shrink-0 ml-3">
-                          <span className="text-sm font-medium">
-                            {entry.recallCount}
-                          </span>
-                          {entry.lastRecalledAt && (
-                            <span className="text-xs text-muted-foreground">
-                              {formatRelativeTime(entry.lastRecalledAt)}
-                            </span>
-                          )}
-                        </div>
+                        <div className="h-4 w-12 bg-muted rounded animate-pulse" />
                       </div>
                     ))}
                   </div>
-                </div>
-              )}
-            </div>
-          )}
-        </CardContent>
-      </Card>
+                ) : entries.length === 0 ? (
+                  <p className="text-sm text-muted-foreground text-center py-6">
+                    No entries yet. Save your first entry to see activity here.
+                  </p>
+                ) : (
+                  <div className="space-y-2">
+                    {entries
+                      .slice()
+                      .sort((a, b) => b.created.getTime() - a.created.getTime())
+                      .slice(0, 10)
+                      .map((entry) => (
+                        <div
+                          key={entry.id}
+                          className="flex items-center justify-between py-2 border-b border-border last:border-0"
+                        >
+                          <div className="flex items-center gap-3 min-w-0">
+                            <span className="text-sm font-medium truncate">
+                              {entry.title}
+                            </span>
+                            <Badge
+                              variant={
+                                entry.category === "knowledge"
+                                  ? "default"
+                                  : entry.category === "entity"
+                                    ? "outline"
+                                    : "secondary"
+                              }
+                              className="text-[10px] shrink-0"
+                            >
+                              {entry.category}
+                            </Badge>
+                            <Badge
+                              variant="secondary"
+                              className="text-[10px] shrink-0"
+                            >
+                              {entry.kind}
+                            </Badge>
+                          </div>
+                          <span className="text-xs text-muted-foreground whitespace-nowrap ml-4">
+                            {formatRelativeTime(entry.created)}
+                          </span>
+                        </div>
+                      ))}
+                  </div>
+                )}
+              </CardContent>
+            </Card>
 
-      {/* Recent Activity */}
-      <Card>
-        <CardHeader className="pb-3">
-          <div className="flex items-center justify-between">
-            <CardTitle className="text-base">Recent Activity</CardTitle>
-            {entries.length > 0 && (
-              <Button variant="ghost" size="sm" asChild className="text-xs h-7">
-                <Link to="/vault/knowledge">View all</Link>
-              </Button>
-            )}
+            {/* MCP Activity */}
+            <Card>
+              <CardHeader className="pb-2">
+                <div className="flex items-center gap-2">
+                  <CardTitle className="text-xs font-medium text-muted-foreground">
+                    MCP Activity
+                  </CardTitle>
+                  <Zap className="size-3.5 text-muted-foreground ml-auto" />
+                </div>
+              </CardHeader>
+              <CardContent>
+                <div className="flex items-center gap-6">
+                  <div>
+                    <p className="text-2xl font-semibold">
+                      {usageLoading ? (
+                        <span className="inline-block h-7 w-10 bg-muted rounded animate-pulse" />
+                      ) : (
+                        mcpCallsToday
+                      )}
+                    </p>
+                    <p className="text-xs text-muted-foreground mt-0.5">Today</p>
+                  </div>
+                  <div className="w-px h-8 bg-border" />
+                  <div>
+                    <p className="text-2xl font-semibold">
+                      {usageLoading ? (
+                        <span className="inline-block h-7 w-10 bg-muted rounded animate-pulse" />
+                      ) : (
+                        mcpCallsThisWeek
+                      )}
+                    </p>
+                    <p className="text-xs text-muted-foreground mt-0.5">
+                      This week
+                    </p>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
           </div>
-        </CardHeader>
-        <CardContent>
-          {entriesLoading ? (
-            <div className="space-y-3 py-2">
-              {[1, 2, 3].map((i) => (
-                <div key={i} className="flex items-center justify-between py-2">
-                  <div className="flex items-center gap-3">
-                    <div className="h-4 w-48 bg-muted rounded animate-pulse" />
-                    <div className="h-4 w-16 bg-muted rounded animate-pulse" />
-                  </div>
-                  <div className="h-4 w-12 bg-muted rounded animate-pulse" />
-                </div>
-              ))}
-            </div>
-          ) : entries.length === 0 ? (
-            <p className="text-sm text-muted-foreground text-center py-6">
-              No entries yet. Save your first entry to see activity here.
-            </p>
-          ) : (
-            <div className="space-y-2">
-              {entries
-                .slice()
-                .sort((a, b) => b.created.getTime() - a.created.getTime())
-                .slice(0, 10)
-                .map((entry) => (
-                  <div
-                    key={entry.id}
-                    className="flex items-center justify-between py-2 border-b border-border last:border-0"
-                  >
-                    <div className="flex items-center gap-3 min-w-0">
-                      <span className="text-sm font-medium truncate">
-                        {entry.title}
-                      </span>
-                      <Badge
-                        variant={
-                          entry.category === "knowledge"
-                            ? "default"
-                            : entry.category === "entity"
-                              ? "outline"
-                              : "secondary"
-                        }
-                        className="text-[10px] shrink-0"
-                      >
-                        {entry.category}
-                      </Badge>
-                      <Badge
-                        variant="secondary"
-                        className="text-[10px] shrink-0"
-                      >
-                        {entry.kind}
-                      </Badge>
-                    </div>
-                    <span className="text-xs text-muted-foreground whitespace-nowrap ml-4">
-                      {formatRelativeTime(entry.created)}
-                    </span>
-                  </div>
-                ))}
-            </div>
-          )}
-        </CardContent>
-      </Card>
 
-      {/* Quick Actions */}
-      <div className="flex flex-wrap gap-3">
-        <Button variant="outline" asChild>
-          <Link to="/search">
-            <Search className="size-4 mr-1.5" />
-            Search vault
-          </Link>
-        </Button>
-        <Button variant="outline" asChild>
-          <Link to="/vault/knowledge">
-            <Plus className="size-4 mr-1.5" />
-            New Entry
-          </Link>
-        </Button>
-        <Button variant="outline" asChild>
-          <Link to="/settings/data">
-            <Upload className="size-4 mr-1.5" />
-            Import data
-          </Link>
-        </Button>
-      </div>
+          {/* Row 2: Teams + Recall Tracking */}
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+            {/* Your Teams */}
+            <Card>
+              <CardHeader className="pb-3">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <CardTitle className="text-base">Your Teams</CardTitle>
+                    <Users className="size-4 text-muted-foreground" />
+                  </div>
+                  {(teams ?? []).length > 0 && (
+                    <Button variant="ghost" size="sm" asChild className="text-xs h-7">
+                      <Link to="/team/new">
+                        <Plus className="size-3 mr-1" />
+                        New team
+                      </Link>
+                    </Button>
+                  )}
+                </div>
+              </CardHeader>
+              <CardContent>
+                {teamsLoading ? (
+                  <div className="space-y-3 py-2">
+                    {[1, 2].map((i) => (
+                      <div key={i} className="h-12 bg-muted rounded animate-pulse" />
+                    ))}
+                  </div>
+                ) : (teams ?? []).length === 0 ? (
+                  <div className="text-center py-6 space-y-3">
+                    <p className="text-sm text-muted-foreground">
+                      Create a team to share knowledge with your colleagues
+                    </p>
+                    <Button variant="outline" size="sm" asChild>
+                      <Link to="/team/new">
+                        <Plus className="size-4 mr-1.5" />
+                        Create a team
+                      </Link>
+                    </Button>
+                  </div>
+                ) : (
+                  <div className="space-y-1">
+                    {(teams ?? []).map((team) => (
+                      <TeamRow key={team.id} team={team} />
+                    ))}
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+
+            {/* Recall Tracking */}
+            <Card>
+              <CardHeader className="pb-3">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <CardTitle className="text-base">Recall Tracking</CardTitle>
+                    <RotateCcw className="size-4 text-muted-foreground" />
+                  </div>
+                  {!hasRecallData && !recallLoading && (
+                    <Badge variant="outline" className="text-[10px]">
+                      Awaiting data
+                    </Badge>
+                  )}
+                </div>
+              </CardHeader>
+              <CardContent>
+                {recallLoading ? (
+                  <div className="space-y-3 py-2">
+                    {[1, 2, 3].map((i) => (
+                      <div key={i} className="h-4 w-48 bg-muted rounded animate-pulse" />
+                    ))}
+                  </div>
+                ) : !hasRecallData ? (
+                  <p className="text-sm text-muted-foreground py-4">
+                    Recall data appears after your first agent session.
+                  </p>
+                ) : (
+                  <div className="space-y-5">
+                    {/* Summary stats */}
+                    <div className="grid grid-cols-3 gap-4">
+                      <div className="text-center p-3 rounded-lg bg-muted/50">
+                        <p className="text-2xl font-semibold">{totalRecalls}</p>
+                        <p className="text-xs text-muted-foreground mt-1">
+                          Total recalls
+                        </p>
+                      </div>
+                      <div className="text-center p-3 rounded-lg bg-muted/50">
+                        <p className="text-2xl font-semibold">
+                          {recalledEntries.length}
+                        </p>
+                        <p className="text-xs text-muted-foreground mt-1">
+                          Entries recalled
+                        </p>
+                      </div>
+                      <div className="text-center p-3 rounded-lg bg-muted/50">
+                        <p className="text-2xl font-semibold">
+                          {allEntries.length > 0
+                            ? `${Math.round((recalledEntries.length / allEntries.length) * 100)}%`
+                            : "0%"}
+                        </p>
+                        <p className="text-xs text-muted-foreground mt-1">
+                          Recall rate
+                        </p>
+                      </div>
+                    </div>
+
+                    {/* Distribution bar chart */}
+                    <div>
+                      <p className="text-xs font-medium text-muted-foreground mb-2">
+                        Recall distribution
+                      </p>
+                      <div className="flex items-end gap-2 h-20">
+                        {recallDistribution.map((bucket) => (
+                          <div
+                            key={bucket.label}
+                            className="flex-1 flex flex-col items-center gap-1"
+                          >
+                            <span className="text-[10px] text-muted-foreground">
+                              {bucket.count}
+                            </span>
+                            <div
+                              className="w-full bg-primary/20 rounded-t transition-all"
+                              style={{
+                                height: `${Math.max((bucket.count / maxBucketCount) * 56, 2)}px`,
+                              }}
+                            >
+                              <div
+                                className="w-full bg-primary rounded-t"
+                                style={{
+                                  height: `${Math.max((bucket.count / maxBucketCount) * 56, 2)}px`,
+                                }}
+                              />
+                            </div>
+                            <span className="text-[10px] text-muted-foreground">
+                              {bucket.label}
+                            </span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+
+                    {/* Top recalled entries */}
+                    {topRecalled.length > 0 && (
+                      <div>
+                        <p className="text-xs font-medium text-muted-foreground mb-2">
+                          Most recalled entries
+                        </p>
+                        <div className="space-y-1.5">
+                          {topRecalled.map((entry) => (
+                            <div
+                              key={entry.id}
+                              className="flex items-center justify-between py-1.5 px-2 rounded hover:bg-muted/30"
+                            >
+                              <div className="flex items-center gap-2 min-w-0">
+                                <span className="text-sm truncate">{entry.title}</span>
+                                <Badge variant="secondary" className="text-[10px] shrink-0">
+                                  {entry.kind}
+                                </Badge>
+                              </div>
+                              <div className="flex items-center gap-3 shrink-0 ml-3">
+                                <span className="text-sm font-medium">
+                                  {entry.recallCount}
+                                </span>
+                                {entry.lastRecalledAt && (
+                                  <span className="text-xs text-muted-foreground">
+                                    {formatRelativeTime(entry.lastRecalledAt)}
+                                  </span>
+                                )}
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+          </div>
+
+          {/* Quick Actions */}
+          <div className="flex flex-wrap gap-3">
+            <Button variant="outline" asChild>
+              <Link to="/search">
+                <Search className="size-4 mr-1.5" />
+                Search vault
+              </Link>
+            </Button>
+            <Button variant="outline" asChild>
+              <Link to="/vault/knowledge">
+                <Plus className="size-4 mr-1.5" />
+                New Entry
+              </Link>
+            </Button>
+            <Button variant="outline" asChild>
+              <Link to="/settings/data">
+                <Upload className="size-4 mr-1.5" />
+                Import data
+              </Link>
+            </Button>
+          </div>
+        </>
+      )}
     </div>
   );
 }

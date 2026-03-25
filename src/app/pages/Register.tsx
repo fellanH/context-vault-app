@@ -49,14 +49,21 @@ export function Register() {
       const { error } = await authClient.signUp.email({
         email: email.trim(),
         password: password.trim(),
-        name: name.trim() || undefined,
+        name: name.trim() || "User",
       });
       if (error) {
         if (
           error.message?.includes("already exists") ||
-          error.status === 409
+          error.message?.includes("already registered") ||
+          error.status === 409 ||
+          error.status === 422
         ) {
-          toast.error("An account with this email already exists");
+          toast("An account with this email already exists.", {
+            action: {
+              label: "Sign in instead",
+              onClick: () => navigate("/login"),
+            },
+          });
         } else {
           toast.error(error.message || "Failed to create account");
         }

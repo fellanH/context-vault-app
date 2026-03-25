@@ -1,5 +1,5 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { api } from "./api";
+import { api, streamImport } from "./api";
 import { authClient } from "./auth-client";
 import {
   transformEntry,
@@ -691,6 +691,43 @@ export function useUnpublishEntry() {
     onSuccess: (_data, vars) => {
       qc.invalidateQueries({ queryKey: ["teamEntries", vars.teamId] });
       qc.invalidateQueries({ queryKey: ["teamVaultStatus", vars.teamId] });
+    },
+  });
+}
+
+// ─── Streaming Import / Job Polling ─────────────────────────────────────────
+
+export function useStreamImport() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (ndjson: string) => streamImport(ndjson),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["entries"] });
+      qc.invalidateQueries({ queryKey: ["usage"] });
+    },
+  });
+}
+
+export function useJobStatus(jobId: string | null) {
+  return useQuery({
+    queryKey: ["job", jobId],
+    queryFn: () =>
+      api.get<{
+        id: string;
+        status: string;
+        total_entries: number;
+        entries_uploaded: number;
+        entries_embedded: number;
+        errors: string[];
+        created_at: string;
+        completed_at: string | null;
+      }>(`/vault/jobs/${jobId}`),
+    enabled: !!jobId,
+    refetchInterval: (query) => {
+      const data = query.state.data;
+      if (!data) return 2000;
+      if (data.status === "complete" || data.status === "failed") return false;
+      return 2000;
     },
   });
 }

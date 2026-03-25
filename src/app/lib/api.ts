@@ -106,3 +106,19 @@ export const api = {
 
 // Keep legacy export for any existing usage
 export const apiFetch = request;
+
+export async function streamImport(ndjson: string): Promise<{ job_id: string; entries_uploaded: number; errors: string[] }> {
+  const url = `${HOSTED_API_URL}/vault/import/stream`;
+  const encryptionSecret = getStoredEncryptionSecret();
+  const res = await fetch(url, {
+    method: "POST",
+    body: ndjson,
+    credentials: "include",
+    headers: encryptionSecret ? { "X-Vault-Secret": encryptionSecret } : undefined,
+  });
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw new ApiError(res.status, body.error || "Import failed", body.code);
+  }
+  return res.json();
+}

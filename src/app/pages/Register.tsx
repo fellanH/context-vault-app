@@ -33,7 +33,7 @@ export function Register() {
     try {
       await authClient.signIn.social({
         provider: "google",
-        callbackURL: "/",
+        callbackURL: window.location.origin + "/",
       });
     } catch {
       toast.error("Google sign-up failed");
@@ -49,7 +49,7 @@ export function Register() {
     try {
       await authClient.signIn.social({
         provider: "github",
-        callbackURL: "/",
+        callbackURL: window.location.origin + "/",
       });
     } catch {
       toast.error("GitHub sign-up failed");

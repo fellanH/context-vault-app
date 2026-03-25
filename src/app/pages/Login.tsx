@@ -57,7 +57,7 @@ export function Login() {
     try {
       await authClient.signIn.social({
         provider: "github",
-        callbackURL: "/",
+        callbackURL: window.location.origin + "/",
       });
     } catch {
       toast.error("GitHub sign-in failed");
@@ -70,7 +70,7 @@ export function Login() {
     try {
       await authClient.signIn.social({
         provider: "google",
-        callbackURL: "/",
+        callbackURL: window.location.origin + "/",
       });
     } catch {
       toast.error("Google sign-in failed");

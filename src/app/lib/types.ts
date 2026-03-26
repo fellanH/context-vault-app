@@ -186,18 +186,33 @@ export function transformEntry(raw: ApiEntry): Entry {
       ? "team"
       : "private";
 
+  // Ensure tags is always an array (API may return string or null)
+  const tags = Array.isArray(raw.tags) ? raw.tags : [];
+
+  // Ensure dates are valid (SQLite datetime format may vary)
+  const created = raw.created_at ? new Date(raw.created_at) : new Date();
+  const updated = raw.created_at ? new Date(raw.created_at) : new Date();
+  // Fall back to current time if date parsing fails
+  if (isNaN(created.getTime())) created.setTime(Date.now());
+  if (isNaN(updated.getTime())) updated.setTime(Date.now());
+
+  // Ensure meta is a plain object
+  const meta =
+    raw.meta && typeof raw.meta === "object" && !Array.isArray(raw.meta)
+      ? raw.meta
+      : undefined;
+
   return {
-    id: raw.id,
-    category: raw.category as Category,
-    kind: raw.kind as Entry["kind"],
+    id: raw.id || "",
+    category: (raw.category as Category) || "knowledge",
+    kind: (raw.kind as Entry["kind"]) || "insight",
     title: raw.title || "",
     body: raw.body || "",
-    tags: raw.tags || [],
+    tags,
     source: raw.source || undefined,
-    created: new Date(raw.created_at),
-    updated: new Date(raw.created_at), // backend doesn't track updated separately
-    metadata:
-      raw.meta && Object.keys(raw.meta).length > 0 ? raw.meta : undefined,
+    created,
+    updated,
+    metadata: meta && Object.keys(meta).length > 0 ? meta : undefined,
     recallCount: raw.recall_count ?? undefined,
     recallSessions: raw.recall_sessions ?? undefined,
     lastRecalledAt: raw.last_recalled_at

@@ -34,7 +34,8 @@ export function VisibilityBadge({
   teamName,
   size = "default",
 }: VisibilityBadgeProps) {
-  const { icon: Icon, label, className } = config[visibility];
+  const entry = config[visibility] || config.private;
+  const { icon: Icon, label, className } = entry;
   const displayLabel = visibility === "team" && teamName ? teamName : label;
 
   return (

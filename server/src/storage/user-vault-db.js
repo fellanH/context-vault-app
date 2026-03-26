@@ -16,7 +16,7 @@
 
 import { createClient } from "@libsql/client/web";
 import { queryOne, execute } from "./turso.js";
-import { VAULT_SCHEMA } from "./turso.js";
+import { VAULT_SCHEMA, initSchemas } from "./turso.js";
 
 // ── Schema for the user_vaults mapping table (lives in shared DB) ────────
 
@@ -65,7 +65,8 @@ const initializedDbs = new Set();
  */
 async function ensureVaultSchema(client, url) {
   if (initializedDbs.has(url)) return;
-  await client.executeMultiple(VAULT_SCHEMA);
+  // Run full schema init including migrations (content_hash, embedded columns)
+  await initSchemas(client);
   initializedDbs.add(url);
 }
 

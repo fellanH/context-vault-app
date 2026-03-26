@@ -194,6 +194,108 @@ export const DeleteResponseSchema = z
   })
   .openapi("DeleteResponse");
 
+// ─── Public Vault Schemas ──────────────────────────────────────────────────
+
+export const PublicVaultSchema = z
+  .object({
+    id: z.string().openapi({ example: "01JKLMNPQR5678ABCDEF" }),
+    slug: z.string().openapi({ example: "react-patterns" }),
+    name: z.string().openapi({ example: "React Patterns" }),
+    description: z
+      .string()
+      .nullable()
+      .openapi({ example: "Battle-tested React patterns from production apps" }),
+    curator_id: z.string().openapi({ example: "user_abc123" }),
+    visibility: z.enum(["free", "pro"]).openapi({ example: "free" }),
+    domain_tags: z
+      .array(z.string())
+      .openapi({ example: ["react", "frontend"] }),
+    consumer_count: z.number().openapi({ example: 42 }),
+    total_recalls: z.number().openapi({ example: 1500 }),
+    created_at: z.string().openapi({ example: "2026-03-01T10:00:00Z" }),
+    updated_at: z.string().nullable().openapi({ example: "2026-03-15T14:30:00Z" }),
+  })
+  .openapi("PublicVault");
+
+export const CreatePublicVaultSchema = z
+  .object({
+    name: z.string().min(1).max(200).openapi({
+      description: "Display name for the public vault.",
+      example: "React Patterns",
+    }),
+    slug: z
+      .string()
+      .regex(/^[a-z0-9][a-z0-9-]{1,62}[a-z0-9]$/)
+      .openapi({
+        description:
+          "URL-friendly identifier (3-64 chars, lowercase alphanumeric + hyphens).",
+        example: "react-patterns",
+      }),
+    description: z.string().max(2000).optional().openapi({
+      description: "Short description of the vault's purpose and content.",
+      example: "Battle-tested React patterns from production apps",
+    }),
+    visibility: z.enum(["free", "pro"]).optional().openapi({
+      description: 'Access level for consumers. "free" = no auth for reads (default).',
+      example: "free",
+    }),
+    domain_tags: z
+      .array(z.string().max(50))
+      .max(10)
+      .optional()
+      .openapi({
+        description: "Domain tags for directory browsing and filtering (max 10).",
+        example: ["react", "frontend", "typescript"],
+      }),
+  })
+  .openapi("CreatePublicVault");
+
+export const PublicVaultListSchema = z
+  .object({
+    vaults: z.array(PublicVaultSchema),
+    total: z.number().openapi({ example: 15 }),
+    limit: z.number().openapi({ example: 20 }),
+    offset: z.number().openapi({ example: 0 }),
+  })
+  .openapi("PublicVaultList");
+
+export const PublicEntrySchema = EntrySchema.extend({
+  recall_count: z.number().openapi({ example: 25 }),
+  distinct_consumers: z.number().openapi({ example: 8 }),
+  status: z.enum(["active", "deprecated", "hidden"]).openapi({ example: "active" }),
+  is_evergreen: z.boolean().openapi({ example: false }),
+}).openapi("PublicEntry");
+
+export const PublicVaultStatsSchema = z
+  .object({
+    slug: z.string().openapi({ example: "react-patterns" }),
+    entry_count: z.number().openapi({ example: 150 }),
+    total_recalls: z.number().openapi({ example: 1500 }),
+    consumer_count: z.number().openapi({ example: 42 }),
+    by_kind: z.record(z.string(), z.number()).openapi({ example: { insight: 80, pattern: 45 } }),
+    top_entries: z.array(
+      z.object({
+        id: z.string(),
+        title: z.string().nullable(),
+        kind: z.string(),
+        recall_count: z.number(),
+        distinct_consumers: z.number(),
+      }),
+    ),
+  })
+  .openapi("PublicVaultStats");
+
+export const SeedResponseSchema = z
+  .object({
+    seeded: z.number().openapi({ example: 25 }),
+    skipped: z.number().openapi({ example: 3 }),
+    total_matched: z.number().openapi({ example: 28 }),
+    errors: z
+      .array(z.object({ id: z.string(), error: z.string() }))
+      .optional(),
+  })
+  .openapi("SeedResponse");
+
 export const VaultStatusSchema = z
   .object({
     entries: z.object({

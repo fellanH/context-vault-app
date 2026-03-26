@@ -20,6 +20,7 @@ import { TeamCreate } from "./pages/team/Create";
 import { TeamDashboard } from "./pages/team/Dashboard";
 import { TeamInvite } from "./pages/team/Invite";
 import { TeamVault } from "./pages/team/Vault";
+import { TeamBrowser } from "./pages/team/Browser";
 import { Changelog } from "./pages/Changelog";
 import { PublicVaultsDirectory } from "./pages/PublicVaultsDirectory";
 import { PublicVaultsDashboard } from "./pages/PublicVaultsDashboard";
@@ -47,6 +48,7 @@ export const router = createBrowserRouter([
       { path: "team/new", Component: TeamCreate },
       { path: "team/:id", Component: TeamDashboard },
       { path: "team/:id/vault", Component: TeamVault },
+      { path: "team/:id/browse", Component: TeamBrowser },
       { path: "team/invite", Component: TeamInvite },
       { path: "settings/api-keys", Component: ApiKeys },
       { path: "settings/billing", Component: Billing },

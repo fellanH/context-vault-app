@@ -640,6 +640,17 @@ interface TeamVaultStatus {
     by_kind: Record<string, number>;
     by_category: Record<string, number>;
   };
+  recall_stats?: {
+    total_recalls: number;
+    distinct_members: number;
+  };
+  hot_spots?: Array<{
+    id: string;
+    title: string;
+    kind: string;
+    recall_count: number;
+    distinct_members: number;
+  }>;
   health: "ok" | "degraded";
   errors: string[];
 }

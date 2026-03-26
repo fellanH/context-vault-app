@@ -27,6 +27,8 @@ import {
   Lightbulb,
   X,
   Sparkles,
+  TrendingUp,
+  Flame,
 } from "lucide-react";
 import {
   useTeam,
@@ -302,6 +304,9 @@ export function TeamDashboard() {
   const byCategory = vaultStatus?.entries.by_category ?? {};
   const knowledgeCount = byCategory["knowledge"] ?? 0;
   const entityCount = byCategory["entity"] ?? 0;
+  const totalRecalls = vaultStatus?.recall_stats?.total_recalls ?? 0;
+  const recallMembers = vaultStatus?.recall_stats?.distinct_members ?? 0;
+  const hotSpots = vaultStatus?.hot_spots ?? [];
 
   const handleInvite = (e: React.FormEvent) => {
     e.preventDefault();
@@ -419,7 +424,7 @@ export function TeamDashboard() {
       )}
 
       {/* Stats */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+      <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
         <Card>
           <CardHeader className="pb-2">
             <div className="flex items-center justify-between">
@@ -474,20 +479,101 @@ export function TeamDashboard() {
             <span className="text-2xl font-semibold">{entityCount}</span>
           </CardContent>
         </Card>
+        <Card>
+          <CardHeader className="pb-2">
+            <div className="flex items-center justify-between">
+              <CardTitle className="text-xs font-medium text-muted-foreground">
+                Total Recalls
+              </CardTitle>
+              <TrendingUp className="size-4 text-muted-foreground" />
+            </div>
+          </CardHeader>
+          <CardContent>
+            <span className="text-2xl font-semibold">{totalRecalls}</span>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardHeader className="pb-2">
+            <div className="flex items-center justify-between">
+              <CardTitle className="text-xs font-medium text-muted-foreground">
+                Recalling
+              </CardTitle>
+              <Users className="size-4 text-muted-foreground" />
+            </div>
+          </CardHeader>
+          <CardContent>
+            <span className="text-2xl font-semibold">{recallMembers}</span>
+            <span className="text-xs text-muted-foreground ml-1">members</span>
+          </CardContent>
+        </Card>
       </div>
 
+      {/* Hot Spots */}
+      {hotSpots.length > 0 && (
+        <Card>
+          <CardHeader className="pb-3">
+            <div className="flex items-center gap-2">
+              <Flame className="size-4 text-orange-500" />
+              <CardTitle className="text-base">Hot Spots</CardTitle>
+            </div>
+            <p className="text-xs text-muted-foreground mt-1">
+              Most recalled entries across the team
+            </p>
+          </CardHeader>
+          <CardContent>
+            <div className="space-y-2">
+              {hotSpots.slice(0, 5).map((spot) => (
+                <div
+                  key={spot.id}
+                  className="flex items-center justify-between py-2 border-b border-border last:border-0"
+                >
+                  <div className="min-w-0">
+                    <p className="text-sm font-medium truncate">{spot.title}</p>
+                    <div className="flex items-center gap-2 mt-0.5">
+                      <Badge variant="outline" className="text-[10px]">
+                        {spot.kind}
+                      </Badge>
+                      <span className="text-xs text-muted-foreground">
+                        {spot.distinct_members} member{spot.distinct_members !== 1 ? "s" : ""}
+                      </span>
+                    </div>
+                  </div>
+                  <span className="flex items-center gap-1 text-sm font-medium text-orange-500 tabular-nums shrink-0">
+                    <Flame className="size-3.5" />
+                    {spot.recall_count}
+                  </span>
+                </div>
+              ))}
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
       {/* Browse vault link */}
-      <Card className="flex flex-col justify-center">
-        <CardContent className="pt-6">
-          <Link to={`/team/${id}/vault`}>
-            <Button variant="outline" className="w-full">
-              <Database className="size-4 mr-2" />
-              Browse Team Vault
-              <ArrowRight className="size-4 ml-auto" />
-            </Button>
-          </Link>
-        </CardContent>
-      </Card>
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <Card className="flex flex-col justify-center">
+          <CardContent className="pt-6">
+            <Link to={`/team/${id}/vault`}>
+              <Button variant="outline" className="w-full">
+                <Database className="size-4 mr-2" />
+                Browse Team Vault
+                <ArrowRight className="size-4 ml-auto" />
+              </Button>
+            </Link>
+          </CardContent>
+        </Card>
+        <Card className="flex flex-col justify-center">
+          <CardContent className="pt-6">
+            <Link to={`/team/${id}/browse`}>
+              <Button variant="outline" className="w-full">
+                <TrendingUp className="size-4 mr-2" />
+                Search &amp; Hot Spots
+                <ArrowRight className="size-4 ml-auto" />
+              </Button>
+            </Link>
+          </CardContent>
+        </Card>
+      </div>
 
       {/* CLI Setup / Onboarding Wizard */}
       {isOwnerOrAdmin ? (

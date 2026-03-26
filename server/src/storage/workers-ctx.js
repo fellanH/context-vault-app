@@ -10,6 +10,7 @@
 
 import { createTursoClient, initSchemas, IMPORT_JOBS_SCHEMA } from "./turso.js";
 import { USER_VAULTS_SCHEMA } from "./user-vault-db.js";
+import { PUBLIC_VAULTS_SCHEMA } from "./public-vault-db.js";
 
 let schemasInitialized = false;
 
@@ -35,6 +36,12 @@ export async function createWorkerCtx(env) {
     await db.executeMultiple(IMPORT_JOBS_SCHEMA).catch((e) => {
       if (!e.message?.includes("already exists")) {
         console.warn(`[workers-ctx] import_jobs schema warning: ${e.message}`);
+      }
+    });
+    // Public vaults mapping table (shared DB only)
+    await db.executeMultiple(PUBLIC_VAULTS_SCHEMA).catch((e) => {
+      if (!e.message?.includes("already exists")) {
+        console.warn(`[workers-ctx] public_vaults schema warning: ${e.message}`);
       }
     });
     schemasInitialized = true;

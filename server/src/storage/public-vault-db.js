@@ -50,6 +50,122 @@ export const PUBLIC_VAULT_EXTRAS = `
   ALTER TABLE vault ADD COLUMN status TEXT DEFAULT 'active';
 `;
 
+// ── Recall count batching ──
+// Buffer recall increments in memory, flush to Turso every 5min or 100 events.
+
+const recallBuffer = new Map(); // key: `${vaultDbUrl}::${entryId}` -> { count, vaultDbUrl, vaultDbToken, entryId }
+let recallBufferSize = 0;
+let flushTimer = null;
+
+const FLUSH_INTERVAL_MS = 5 * 60 * 1000; // 5 minutes
+const FLUSH_THRESHOLD = 100; // flush after 100 buffered events
+
+/**
+ * Buffer a recall increment for an entry. Flushes to Turso when threshold or timer fires.
+ *
+ * @param {object} vault - Public vault row (needs vault_db_url, vault_db_token)
+ * @param {string} entryId
+ * @param {string|null} consumerFingerprint - Unique consumer identifier for distinct_consumers tracking
+ */
+export function bufferRecallIncrement(vault, entryId, consumerFingerprint = null) {
+  const key = `${vault.vault_db_url}::${entryId}`;
+  const existing = recallBuffer.get(key);
+  if (existing) {
+    existing.count++;
+    if (consumerFingerprint) existing.consumers.add(consumerFingerprint);
+  } else {
+    const consumers = new Set();
+    if (consumerFingerprint) consumers.add(consumerFingerprint);
+    recallBuffer.set(key, {
+      count: 1,
+      vaultDbUrl: vault.vault_db_url,
+      vaultDbToken: vault.vault_db_token,
+      entryId,
+      consumers,
+    });
+  }
+  recallBufferSize++;
+
+  if (recallBufferSize >= FLUSH_THRESHOLD) {
+    flushRecallBuffer();
+  } else if (!flushTimer) {
+    flushTimer = setTimeout(() => flushRecallBuffer(), FLUSH_INTERVAL_MS);
+  }
+}
+
+/**
+ * Flush all buffered recall increments to Turso.
+ * Safe to call multiple times; no-ops if buffer is empty.
+ */
+export async function flushRecallBuffer() {
+  if (flushTimer) {
+    clearTimeout(flushTimer);
+    flushTimer = null;
+  }
+  if (recallBuffer.size === 0) return;
+
+  const batch = new Map(recallBuffer);
+  recallBuffer.clear();
+  recallBufferSize = 0;
+
+  // Group by vault DB URL to batch per-DB
+  const byDb = new Map();
+  for (const entry of batch.values()) {
+    const dbKey = entry.vaultDbUrl;
+    if (!byDb.has(dbKey)) {
+      byDb.set(dbKey, { url: entry.vaultDbUrl, token: entry.vaultDbToken, entries: [] });
+    }
+    byDb.get(dbKey).entries.push(entry);
+  }
+
+  for (const { url, token, entries } of byDb.values()) {
+    try {
+      const client = getPublicVaultClient(url, token);
+      for (const entry of entries) {
+        await client.execute({
+          sql: "UPDATE vault SET recall_count = recall_count + ?, distinct_consumers = distinct_consumers + ? WHERE id = ?",
+          args: [entry.count, entry.consumers.size, entry.entryId],
+        });
+      }
+    } catch (err) {
+      console.error(`[public-vault-db] Recall flush error for ${url}: ${err.message}`);
+      // Re-buffer failed entries so they aren't lost
+      for (const entry of entries) {
+        const key = `${entry.vaultDbUrl}::${entry.entryId}`;
+        const existing = recallBuffer.get(key);
+        if (existing) {
+          existing.count += entry.count;
+          for (const c of entry.consumers) existing.consumers.add(c);
+        } else {
+          recallBuffer.set(key, entry);
+        }
+        recallBufferSize += entry.count;
+      }
+    }
+  }
+}
+
+// ── Stale entry auto-hide ──
+
+/**
+ * Hide stale entries: status='hidden' for entries with 0 recalls after 180 days.
+ * Entries marked as evergreen are excluded.
+ *
+ * @param {import("@libsql/client").Client} vaultDb - Per-vault DB client
+ * @returns {Promise<number>} Number of entries hidden
+ */
+export async function hideStaleEntries(vaultDb) {
+  const result = await vaultDb.execute({
+    sql: `UPDATE vault SET status = 'hidden', updated_at = datetime('now')
+          WHERE status = 'active'
+            AND is_evergreen = 0
+            AND (recall_count IS NULL OR recall_count = 0)
+            AND created_at < datetime('now', '-180 days')`,
+    args: [],
+  });
+  return result.rowsAffected || 0;
+}
+
 // ── In-memory cache for public vault DB clients (per Worker instance) ──
 
 const clientCache = new Map();

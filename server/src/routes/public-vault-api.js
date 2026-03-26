@@ -40,6 +40,9 @@ import {
   provisionPublicVaultDb,
   resolvePublicVaultClient,
   formatPublicVault,
+  bufferRecallIncrement,
+  flushRecallBuffer,
+  hideStaleEntries,
 } from "../storage/public-vault-db.js";
 
 // ── Slug validation ────────────────────────────────────────────────────────
@@ -76,6 +79,42 @@ function canReadVault(vault, user) {
   if (vault.visibility === "free") return true;
   // Pro vaults require any authenticated user
   return !!user;
+}
+
+/**
+ * Set Cloudflare edge cache headers on a response.
+ * Uses CDN-Cache-Control for Cloudflare-specific caching (does not affect browser cache).
+ *
+ * @param {import("hono").Context} c
+ * @param {number} seconds - Edge cache TTL in seconds
+ */
+function setEdgeCacheHeaders(c, seconds) {
+  c.header("Cache-Control", "public, no-cache");
+  c.header("CDN-Cache-Control", `public, max-age=${seconds}`);
+}
+
+/**
+ * Purge Cloudflare edge cache for a vault's read endpoints.
+ * Uses the Cache API to delete cached responses by URL.
+ * Best-effort: failures are logged but don't block the response.
+ *
+ * @param {import("hono").Context} c
+ * @param {string} slug
+ */
+async function purgeVaultCache(c, slug) {
+  try {
+    const cache = caches.default;
+    const origin = new URL(c.req.url).origin;
+    const urls = [
+      `${origin}/api/public/vaults`,
+      `${origin}/api/public/${slug}`,
+      `${origin}/api/public/${slug}/entries`,
+      `${origin}/api/public/${slug}/stats`,
+    ];
+    await Promise.allSettled(urls.map((u) => cache.delete(new Request(u))));
+  } catch (err) {
+    console.warn(`[public-vault-api] Cache purge error: ${err.message}`);
+  }
 }
 
 /**
@@ -163,6 +202,7 @@ export function createPublicVaultApiRoutes() {
         offset,
       });
 
+      setEdgeCacheHeaders(c, 300); // 5 minutes
       return c.json({
         vaults: vaults.map(formatPublicVault),
         total,
@@ -274,6 +314,7 @@ export function createPublicVaultApiRoutes() {
         [...args, limit, offset],
       );
 
+      setEdgeCacheHeaders(c, 300); // 5 minutes
       return c.json({
         entries: rows.map(formatPublicEntry),
         total,
@@ -325,6 +366,7 @@ export function createPublicVaultApiRoutes() {
         return entry;
       });
 
+      setEdgeCacheHeaders(c, 60); // 1 minute
       return c.json({ results, count: results.length, query });
     } catch (err) {
       console.error(`[public-vault-api] Search entries error: ${err.message}`);
@@ -346,6 +388,15 @@ export function createPublicVaultApiRoutes() {
     try {
       const vaultDb = await resolvePublicVaultClient(vault);
 
+      // Flush any buffered recall counts before computing stats
+      await flushRecallBuffer();
+
+      // Run stale entry auto-hide on stats requests (lightweight periodic trigger)
+      const hiddenCount = await hideStaleEntries(vaultDb);
+      if (hiddenCount > 0) {
+        console.log(`[public-vault-api] Auto-hid ${hiddenCount} stale entries in ${slug}`);
+      }
+
       const totalRow = await queryOne(vaultDb, "SELECT COUNT(*) as c FROM vault WHERE status = 'active'");
       const recallRow = await queryOne(vaultDb, "SELECT SUM(recall_count) as s FROM vault WHERE status = 'active'");
       const kindRows = await queryAll(
@@ -357,6 +408,7 @@ export function createPublicVaultApiRoutes() {
         "SELECT id, title, kind, recall_count, distinct_consumers FROM vault WHERE status = 'active' ORDER BY recall_count DESC LIMIT 10",
       );
 
+      setEdgeCacheHeaders(c, 900); // 15 minutes
       return c.json({
         slug: vault.slug,
         entry_count: Number(totalRow?.c ?? 0),
@@ -482,6 +534,7 @@ export function createPublicVaultApiRoutes() {
       });
 
       const updated = await getPublicVaultBySlug(db, slug);
+      c.executionCtx?.waitUntil?.(purgeVaultCache(c, slug));
       return c.json(formatPublicVault(updated));
     } catch (err) {
       console.error(`[public-vault-api] Update vault error: ${err.message}`);
@@ -507,6 +560,7 @@ export function createPublicVaultApiRoutes() {
 
     try {
       await deletePublicVaultRecord(db, vault.id);
+      c.executionCtx?.waitUntil?.(purgeVaultCache(c, slug));
       return c.json({ deleted: true, slug });
     } catch (err) {
       console.error(`[public-vault-api] Delete vault error: ${err.message}`);
@@ -582,6 +636,7 @@ export function createPublicVaultApiRoutes() {
       });
 
       const entry = await queryOne(vaultDb, "SELECT * FROM vault WHERE id = ?", [id]);
+      c.executionCtx?.waitUntil?.(purgeVaultCache(c, slug));
       return c.json(formatPublicEntry(entry), 201);
     } catch (err) {
       console.error(`[public-vault-api] Create entry error: ${err.message}`);
@@ -653,6 +708,7 @@ export function createPublicVaultApiRoutes() {
       await execute(vaultDb, `UPDATE vault SET ${sets.join(", ")} WHERE id = ?`, args);
 
       const updated = await queryOne(vaultDb, "SELECT * FROM vault WHERE id = ?", [entryId]);
+      c.executionCtx?.waitUntil?.(purgeVaultCache(c, slug));
       return c.json(formatPublicEntry(updated));
     } catch (err) {
       console.error(`[public-vault-api] Update entry error: ${err.message}`);
@@ -686,6 +742,7 @@ export function createPublicVaultApiRoutes() {
       }
 
       await execute(vaultDb, "DELETE FROM vault WHERE id = ?", [entryId]);
+      c.executionCtx?.waitUntil?.(purgeVaultCache(c, slug));
       return c.json({ deleted: true, id: entryId });
     } catch (err) {
       console.error(`[public-vault-api] Delete entry error: ${err.message}`);
@@ -796,6 +853,9 @@ export function createPublicVaultApiRoutes() {
         }
       }
 
+      if (seeded > 0) {
+        c.executionCtx?.waitUntil?.(purgeVaultCache(c, slug));
+      }
       return c.json({
         seeded,
         skipped,

@@ -22,6 +22,7 @@ import { createWorkerCtx } from "./storage/workers-ctx.js";
 import { createManagementRoutes } from "./server/management.js";
 import { createVaultApiRoutes } from "./routes/vault-api.js";
 import { createTeamVaultApiRoutes } from "./routes/team-vault-api.js";
+import { createPublicVaultApiRoutes } from "./routes/public-vault-api.js";
 
 const VERSION = "0.2.0";
 
@@ -143,6 +144,11 @@ app.route("/", createVaultApiRoutes());
 app.use("/api/team/*", vaultAuth());
 // Team vaults use the shared DB (team_id isolation), not per-user DBs
 app.route("/", createTeamVaultApiRoutes());
+
+// ─── Public Vault REST API ───────────────────────────────────────────────────
+
+// Public read endpoints need no auth; curator endpoints use vaultAuth internally
+app.route("/", createPublicVaultApiRoutes());
 
 // ─── Root redirect ───────────────────────────────────────────────────────────
 

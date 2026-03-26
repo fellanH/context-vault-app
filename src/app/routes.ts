@@ -21,6 +21,9 @@ import { TeamDashboard } from "./pages/team/Dashboard";
 import { TeamInvite } from "./pages/team/Invite";
 import { TeamVault } from "./pages/team/Vault";
 import { Changelog } from "./pages/Changelog";
+import { PublicVaultsDirectory } from "./pages/PublicVaultsDirectory";
+import { PublicVaultsDashboard } from "./pages/PublicVaultsDashboard";
+import { PublicVaultsCreate } from "./pages/PublicVaultsCreate";
 
 export const router = createBrowserRouter([
   { path: "/login", Component: Login },
@@ -38,6 +41,9 @@ export const router = createBrowserRouter([
       { path: "vault/knowledge", Component: Knowledge },
       { path: "vault/entities", Component: Entities },
       { path: "vault/events", Component: Events },
+      { path: "public-vaults", Component: PublicVaultsDirectory },
+      { path: "public-vaults/new", Component: PublicVaultsCreate },
+      { path: "public-vaults/:slug", Component: PublicVaultsDashboard },
       { path: "team/new", Component: TeamCreate },
       { path: "team/:id", Component: TeamDashboard },
       { path: "team/:id/vault", Component: TeamVault },

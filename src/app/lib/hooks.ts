@@ -695,6 +695,266 @@ export function useUnpublishEntry() {
   });
 }
 
+// ─── Public Vaults ──────────────────────────────────────────────────────────
+
+export interface PublicVault {
+  id: string;
+  slug: string;
+  name: string;
+  description: string | null;
+  curator_id: string;
+  curator_name: string | null;
+  visibility: "free" | "pro";
+  domain_tags: string[];
+  entry_count: number;
+  consumer_count: number;
+  total_recalls: number;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface PublicVaultEntry {
+  id: string;
+  kind: string;
+  category: string;
+  title: string;
+  body: string;
+  tags: string[];
+  source: string | null;
+  recall_count: number;
+  distinct_consumers: number;
+  status: "active" | "deprecated" | "hidden";
+  is_evergreen: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface PublicVaultStats {
+  total_entries: number;
+  total_recalls: number;
+  consumer_count: number;
+  by_kind: Record<string, number>;
+  top_entries: Array<{
+    id: string;
+    title: string;
+    recall_count: number;
+    distinct_consumers: number;
+  }>;
+}
+
+interface UsePublicVaultsOpts {
+  domain?: string;
+  sort?: "consumers" | "recalls" | "recent";
+  limit?: number;
+  offset?: number;
+}
+
+export function usePublicVaults({
+  domain,
+  sort = "consumers",
+  limit = 20,
+  offset = 0,
+}: UsePublicVaultsOpts = {}) {
+  return useQuery({
+    queryKey: ["publicVaults", { domain, sort, limit, offset }],
+    queryFn: async () => {
+      const params = new URLSearchParams();
+      if (domain) params.set("domain", domain);
+      params.set("sort", sort);
+      params.set("limit", String(limit));
+      params.set("offset", String(offset));
+      return api.get<{ vaults: PublicVault[]; total: number }>(
+        `/public/vaults?${params}`,
+      );
+    },
+  });
+}
+
+export function usePublicVaultSearch(query: string) {
+  return useQuery({
+    queryKey: ["publicVaultSearch", query],
+    queryFn: () =>
+      api.get<{ vaults: PublicVault[]; total: number }>(
+        `/public/vaults/search?q=${encodeURIComponent(query)}`,
+      ),
+    enabled: query.length >= 2,
+  });
+}
+
+export function usePublicVault(slug: string | null) {
+  return useQuery({
+    queryKey: ["publicVault", slug],
+    queryFn: () => api.get<PublicVault>(`/public/${slug}`),
+    enabled: !!slug,
+  });
+}
+
+interface UsePublicVaultEntriesOpts {
+  slug: string | null;
+  kind?: string;
+  category?: string;
+  limit?: number;
+  offset?: number;
+}
+
+export function usePublicVaultEntries({
+  slug,
+  kind,
+  category,
+  limit = 20,
+  offset = 0,
+}: UsePublicVaultEntriesOpts) {
+  return useQuery({
+    queryKey: ["publicVaultEntries", slug, { kind, category, limit, offset }],
+    queryFn: async () => {
+      const params = new URLSearchParams();
+      if (kind && kind !== "all") params.set("kind", kind);
+      if (category) params.set("category", category);
+      params.set("limit", String(limit));
+      params.set("offset", String(offset));
+      return api.get<{ entries: PublicVaultEntry[]; total: number }>(
+        `/public/${slug}/entries?${params}`,
+      );
+    },
+    enabled: !!slug,
+  });
+}
+
+export function usePublicVaultStats(slug: string | null) {
+  return useQuery({
+    queryKey: ["publicVaultStats", slug],
+    queryFn: () => api.get<PublicVaultStats>(`/public/${slug}/stats`),
+    enabled: !!slug,
+  });
+}
+
+export function useCreatePublicVault() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (data: {
+      name: string;
+      slug: string;
+      description?: string;
+      visibility?: "free" | "pro";
+      domain_tags?: string[];
+    }) => api.post<PublicVault>("/public/vaults", data),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["publicVaults"] });
+    },
+  });
+}
+
+export function useUpdatePublicVault() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({
+      slug,
+      ...data
+    }: {
+      slug: string;
+      name?: string;
+      description?: string;
+      visibility?: "free" | "pro";
+      domain_tags?: string[];
+    }) => api.put<PublicVault>(`/public/${slug}`, data),
+    onSuccess: (_data, vars) => {
+      qc.invalidateQueries({ queryKey: ["publicVaults"] });
+      qc.invalidateQueries({ queryKey: ["publicVault", vars.slug] });
+    },
+  });
+}
+
+export function useDeletePublicVault() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (slug: string) =>
+      api.del<{ deleted: boolean }>(`/public/${slug}`),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["publicVaults"] });
+    },
+  });
+}
+
+export function useCreatePublicVaultEntry() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({
+      slug,
+      ...data
+    }: {
+      slug: string;
+      kind: string;
+      title: string;
+      body: string;
+      tags?: string[];
+    }) => api.post<PublicVaultEntry>(`/public/${slug}/entries`, data),
+    onSuccess: (_data, vars) => {
+      qc.invalidateQueries({ queryKey: ["publicVaultEntries", vars.slug] });
+      qc.invalidateQueries({ queryKey: ["publicVaultStats", vars.slug] });
+      qc.invalidateQueries({ queryKey: ["publicVault", vars.slug] });
+    },
+  });
+}
+
+export function useUpdatePublicVaultEntry() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({
+      slug,
+      id,
+      ...data
+    }: {
+      slug: string;
+      id: string;
+      title?: string;
+      body?: string;
+      tags?: string[];
+      status?: "active" | "deprecated" | "hidden";
+      is_evergreen?: boolean;
+    }) => api.put<PublicVaultEntry>(`/public/${slug}/entries/${id}`, data),
+    onSuccess: (_data, vars) => {
+      qc.invalidateQueries({ queryKey: ["publicVaultEntries", vars.slug] });
+      qc.invalidateQueries({ queryKey: ["publicVaultStats", vars.slug] });
+    },
+  });
+}
+
+export function useDeletePublicVaultEntry() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ slug, id }: { slug: string; id: string }) =>
+      api.del<{ deleted: boolean }>(`/public/${slug}/entries/${id}`),
+    onSuccess: (_data, vars) => {
+      qc.invalidateQueries({ queryKey: ["publicVaultEntries", vars.slug] });
+      qc.invalidateQueries({ queryKey: ["publicVaultStats", vars.slug] });
+      qc.invalidateQueries({ queryKey: ["publicVault", vars.slug] });
+    },
+  });
+}
+
+export function useSeedPublicVault() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({
+      slug,
+      ...data
+    }: {
+      slug: string;
+      entry_ids?: string[];
+      tags?: string[];
+      dry_run?: boolean;
+    }) => api.post<{ seeded: number; skipped: number; errors: string[] }>(
+      `/public/${slug}/seed`,
+      data,
+    ),
+    onSuccess: (_data, vars) => {
+      qc.invalidateQueries({ queryKey: ["publicVaultEntries", vars.slug] });
+      qc.invalidateQueries({ queryKey: ["publicVaultStats", vars.slug] });
+      qc.invalidateQueries({ queryKey: ["publicVault", vars.slug] });
+    },
+  });
+}
+
 // ─── Streaming Import / Job Polling ─────────────────────────────────────────
 
 export function useStreamImport() {

@@ -22,6 +22,7 @@ import {
   Layers,
   Menu,
   X,
+  Globe,
 } from "lucide-react";
 import { useTheme } from "next-themes";
 import { Button } from "./ui/button";
@@ -44,6 +45,7 @@ const mainItems: NavItem[] = [
   { path: "/search", label: "Search", icon: Search },
   { path: "/import", label: "Import", icon: Upload },
   { path: "/changelog", label: "What's New", icon: ScrollText },
+  { path: "/public-vaults", label: "Public Vaults", icon: Globe },
 ];
 
 const vaultItems: NavItem[] = [
@@ -61,6 +63,9 @@ const settingsItems: NavItem[] = [
 ];
 
 function getPageTitle(pathname: string): string {
+  if (pathname === "/public-vaults") return "Public Vaults";
+  if (pathname === "/public-vaults/new") return "Create Public Vault";
+  if (pathname.startsWith("/public-vaults/")) return "Public Vault";
   if (pathname === "/team/new") return "Create Team";
   if (pathname.startsWith("/team/invite")) return "Team Invite";
   if (pathname.match(/^\/team\/[^/]+\/vault$/)) return "Team Vault";

@@ -50,8 +50,8 @@ export function Entities() {
   const filteredEntries = searchQuery
     ? entries.filter(
         (entry) =>
-          entry.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
-          entry.body.toLowerCase().includes(searchQuery.toLowerCase()),
+          (entry.title ?? "").toLowerCase().includes(searchQuery.toLowerCase()) ||
+          (entry.body ?? "").toLowerCase().includes(searchQuery.toLowerCase()),
       )
     : entries;
 
@@ -137,8 +137,8 @@ export function Entities() {
             />
           ) : (
             <div className="p-6">
-              <div className="border border-border rounded-lg overflow-hidden bg-card">
-                <table className="w-full">
+              <div className="border border-border rounded-lg overflow-x-auto bg-card">
+                <table className="w-full min-w-[640px]">
                   <thead>
                     <tr className="border-b border-border bg-muted/50">
                       <th className="text-left px-4 py-3 text-xs font-medium text-muted-foreground">
@@ -176,22 +176,22 @@ export function Entities() {
                       >
                         <td className="px-4 py-3">
                           <code className="text-xs font-mono text-muted-foreground">
-                            {entry.id.slice(0, 12)}...
+                            {(entry.id ?? "").slice(0, 12)}...
                           </code>
                         </td>
                         <td className="px-4 py-3">
                           <span className="text-sm font-medium">
-                            {entry.title}
+                            {entry.title ?? ""}
                           </span>
                         </td>
                         <td className="px-4 py-3">
                           <Badge variant="outline" className="text-xs">
-                            {entry.kind}
+                            {entry.kind ?? "unknown"}
                           </Badge>
                         </td>
                         <td className="px-4 py-3">
                           <div className="flex gap-1 flex-wrap">
-                            {entry.tags.slice(0, 3).map((tag) => (
+                            {(entry.tags ?? []).slice(0, 3).map((tag) => (
                               <Badge
                                 key={tag}
                                 variant="outline"
@@ -200,7 +200,7 @@ export function Entities() {
                                 {tag}
                               </Badge>
                             ))}
-                            {entry.tags.length > 3 && (
+                            {(entry.tags ?? []).length > 3 && (
                               <Badge variant="outline" className="text-xs">
                                 +{entry.tags.length - 3}
                               </Badge>

@@ -45,9 +45,10 @@ export function useEntries({
       const raw = await api.get<{ entries: ApiEntry[]; total: number }>(
         `/vault/entries?${params}`,
       );
+      const rawEntries = Array.isArray(raw.entries) ? raw.entries : [];
       return {
-        entries: raw.entries.map(transformEntry),
-        total: raw.total,
+        entries: rawEntries.filter(Boolean).map(transformEntry),
+        total: raw.total ?? 0,
       };
     },
   });
@@ -592,9 +593,10 @@ export function useTeamEntries({
       const raw = await api.get<{ entries: ApiEntry[]; total: number }>(
         `/team/${teamId}/entries?${params}`,
       );
+      const rawEntries = Array.isArray(raw.entries) ? raw.entries : [];
       return {
-        entries: raw.entries.map(transformEntry),
-        total: raw.total,
+        entries: rawEntries.filter(Boolean).map(transformEntry),
+        total: raw.total ?? 0,
       };
     },
     enabled: !!teamId,

@@ -1,5 +1,6 @@
 import { useState, useEffect } from "react";
 import { useQueryClient } from "@tanstack/react-query";
+import ReactMarkdown from "react-markdown";
 import type { Entry } from "../lib/types";
 import { useDeleteEntry, useUpdateEntry, useTeams, usePublishEntry } from "../lib/hooks";
 import { ApiError } from "../lib/api";
@@ -542,9 +543,7 @@ export function EntryInspector({
                 <TabsContent value="content" className="h-full">
                   <ScrollArea className="h-full pr-2">
                     <div className="prose prose-sm dark:prose-invert max-w-none pr-2">
-                      <pre className="whitespace-pre-wrap font-['Inter'] text-sm bg-transparent border-none p-0 m-0">
-                        {liveEntry.body}
-                      </pre>
+                      <ReactMarkdown>{liveEntry.body}</ReactMarkdown>
                     </div>
                   </ScrollArea>
                 </TabsContent>

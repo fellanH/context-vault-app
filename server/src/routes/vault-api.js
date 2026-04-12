@@ -138,7 +138,6 @@ export function formatEntry(row) {
  * @returns {Promise<string>} The new entry's ID
  */
 export async function insertEntry(db, ai, data) {
-  const id = ulid();
   const kind = normalizeKind(data.kind);
   const category = categoryFor(kind);
   const tags = data.tags
@@ -155,12 +154,69 @@ export async function insertEntry(db, ai, data) {
     meta || "{}",
   );
 
+  // Identity-key dedup: if an entry with the same kind+identity_key already
+  // exists for this user, update it instead of creating a duplicate.
+  if (data.identity_key && data.userId) {
+    const existing = await queryOne(
+      db,
+      `SELECT id FROM vault WHERE user_id = ? AND kind = ? AND identity_key = ?`,
+      [data.userId, kind, data.identity_key],
+    );
+    if (existing) {
+      await execute(
+        db,
+        `UPDATE vault SET
+            category = ?, title = ?, body = ?, meta = ?, tags = ?, source = ?,
+            expires_at = ?, content_hash = ?, embedded = 0, updated_at = ?
+         WHERE id = ? AND user_id = ?`,
+        [
+          category,
+          data.title || null,
+          data.body,
+          meta,
+          tags,
+          data.source || "rest-api",
+          data.expires_at || null,
+          contentHash,
+          now,
+          existing.id,
+          data.userId,
+        ],
+      );
+
+      if (ai && data.body) {
+        embed(ai, `${data.title ? data.title + "\n" : ""}${data.body}`).catch(
+          () => {},
+        );
+      }
+
+      return existing.id;
+    }
+  }
+
+  const id = data.id || ulid();
+
+  // Upsert: insert if new, update only if owned by this user
   await execute(
     db,
     `INSERT INTO vault
        (id, user_id, team_id, kind, category, title, body, meta, tags, source,
         identity_key, expires_at, content_hash, embedded, created_at, updated_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?)`,
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?)
+     ON CONFLICT(id) DO UPDATE SET
+        kind = excluded.kind,
+        category = excluded.category,
+        title = excluded.title,
+        body = excluded.body,
+        meta = excluded.meta,
+        tags = excluded.tags,
+        source = excluded.source,
+        identity_key = excluded.identity_key,
+        expires_at = excluded.expires_at,
+        content_hash = excluded.content_hash,
+        embedded = 0,
+        updated_at = excluded.updated_at
+     WHERE vault.user_id = ?`,
     [
       id,
       data.userId,
@@ -177,6 +233,7 @@ export async function insertEntry(db, ai, data) {
       contentHash,
       now,
       now,
+      data.userId,
     ],
   );
 

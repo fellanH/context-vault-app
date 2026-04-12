@@ -686,7 +686,7 @@ export function TeamDashboard() {
                       <p className="text-sm">{invite.email}</p>
                       <p className="text-xs text-muted-foreground">
                         Expires{" "}
-                        {invite.expiresAt.toLocaleDateString()}
+                        {new Date(invite.expiresAt).toLocaleDateString()}
                       </p>
                     </div>
                     <Badge variant="secondary" className="text-[10px]">

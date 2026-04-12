@@ -88,6 +88,7 @@ export interface ApiEntry {
   identity_key: string | null;
   expires_at: string | null;
   created_at: string;
+  updated_at?: string | null;
   // Recall tracking (optional; API may not yet return these fields)
   recall_count?: number;
   recall_sessions?: number;
@@ -191,7 +192,7 @@ export function transformEntry(raw: ApiEntry): Entry {
 
   // Ensure dates are valid (SQLite datetime format may vary)
   const created = raw.created_at ? new Date(raw.created_at) : new Date();
-  const updated = raw.created_at ? new Date(raw.created_at) : new Date();
+  const updated = raw.updated_at ? new Date(raw.updated_at) : (raw.created_at ? new Date(raw.created_at) : new Date());
   // Fall back to current time if date parsing fails
   if (isNaN(created.getTime())) created.setTime(Date.now());
   if (isNaN(updated.getTime())) updated.setTime(Date.now());

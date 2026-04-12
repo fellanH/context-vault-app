@@ -5,11 +5,9 @@ import {
   CardTitle,
 } from "../../components/ui/card";
 import { Button } from "../../components/ui/button";
-import { ExternalLink, CheckCircle2, Circle, Copy, Check } from "lucide-react";
+import { ExternalLink, Copy, Check } from "lucide-react";
 import { useState } from "react";
 import { toast } from "sonner";
-
-const RULES_VERSION = "1.0";
 
 const RULES_CONTENT = `# Context Vault — Agent Rules
 
@@ -61,30 +59,6 @@ Capture what was learned (the insight), why it matters (what problem it prevents
 
 At the end of significant work sessions, review what you learned. If the session produced novel knowledge (not every session does), save 1-3 consolidated entries. Prefer one solid entry over multiple fragments.`;
 
-interface ToolStatus {
-  name: string;
-  installPath: string;
-  installed: boolean;
-}
-
-const TOOL_STATUSES: ToolStatus[] = [
-  {
-    name: "Claude Code",
-    installPath: "~/.claude/rules/context-vault.md",
-    installed: true,
-  },
-  {
-    name: "Cursor",
-    installPath: ".cursorrules (appended)",
-    installed: false,
-  },
-  {
-    name: "Windsurf",
-    installPath: ".windsurfrules (appended)",
-    installed: false,
-  },
-];
-
 export function AgentRules() {
   const [copied, setCopied] = useState(false);
 
@@ -103,44 +77,6 @@ export function AgentRules() {
           Rules installed by <code className="text-xs">context-vault setup</code> that teach AI agents how to use your vault.
         </p>
       </div>
-
-      {/* Version + Status */}
-      <Card>
-        <CardHeader className="pb-3">
-          <div className="flex items-center justify-between">
-            <CardTitle className="text-base">Installation Status</CardTitle>
-            <span className="inline-flex items-center rounded-md border border-border bg-muted px-2 py-0.5 font-mono text-xs text-muted-foreground">
-              v{RULES_VERSION}
-            </span>
-          </div>
-        </CardHeader>
-        <CardContent className="space-y-3">
-          {TOOL_STATUSES.map((tool) => (
-            <div
-              key={tool.name}
-              className="flex items-center justify-between py-1.5"
-            >
-              <div className="flex items-center gap-2">
-                {tool.installed ? (
-                  <CheckCircle2 className="size-4 text-emerald-500" />
-                ) : (
-                  <Circle className="size-4 text-muted-foreground" />
-                )}
-                <span className="text-sm font-medium">{tool.name}</span>
-              </div>
-              <code className="text-xs text-muted-foreground">
-                {tool.installPath}
-              </code>
-            </div>
-          ))}
-          <p className="text-xs text-muted-foreground pt-2 border-t border-border">
-            Install or update rules via the CLI:{" "}
-            <code className="bg-muted px-1.5 py-0.5 rounded">
-              npx context-vault setup
-            </code>
-          </p>
-        </CardContent>
-      </Card>
 
       {/* Rules Content */}
       <Card>

@@ -1,6 +1,6 @@
 import { useState } from "react";
 import type { Entry } from "../lib/types";
-import { useEntries } from "../lib/hooks";
+import { useEntries, useCategorySearch } from "../lib/hooks";
 import { formatRelativeTime } from "../lib/format";
 import { Badge } from "../components/ui/badge";
 import { Button } from "../components/ui/button";
@@ -42,18 +42,18 @@ export function Entities() {
     limit: PAGE_SIZE,
   });
 
-  const entries = data?.entries ?? [];
-  const total = data?.total ?? 0;
-  const totalPages = Math.ceil(total / PAGE_SIZE);
+  const searchResults = useCategorySearch({
+    query: searchQuery,
+    category: "entity",
+    limit: 50,
+  });
 
-  // Client-side text filter on loaded page
-  const filteredEntries = searchQuery
-    ? entries.filter(
-        (entry) =>
-          (entry.title ?? "").toLowerCase().includes(searchQuery.toLowerCase()) ||
-          (entry.body ?? "").toLowerCase().includes(searchQuery.toLowerCase()),
-      )
-    : entries;
+  const isSearching = searchQuery.trim().length >= 2;
+  const entries = isSearching ? (searchResults.data?.entries ?? []) : (data?.entries ?? []);
+  const total = isSearching ? (searchResults.data?.total ?? 0) : (data?.total ?? 0);
+  const totalPages = isSearching ? 1 : Math.ceil(total / PAGE_SIZE);
+  const searchLoading = isSearching && searchResults.isLoading;
+  const filteredEntries = entries;
 
   const handleSearchChange = (value: string) => {
     setSearchQuery(value);
@@ -108,7 +108,7 @@ export function Entities() {
         </div>
 
         <div className="flex-1 overflow-auto">
-          {isLoading ? (
+          {isLoading || searchLoading ? (
             <div className="p-6 space-y-2">
               {Array.from({ length: 5 }).map((_, i) => (
                 <div key={i} className="flex items-center gap-4 px-4 py-3">

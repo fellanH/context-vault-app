@@ -1,3 +1,4 @@
+import { useState, useEffect } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { api, streamImport } from "./api";
 import { authClient } from "./auth-client";
@@ -142,6 +143,47 @@ export function useSearch() {
         query: raw.query,
       };
     },
+  });
+}
+
+// ─── Debounce + Category Search ─────────────────────────────────────────────
+
+export function useDebounce<T>(value: T, delayMs: number): T {
+  const [debounced, setDebounced] = useState(value);
+  useEffect(() => {
+    const timer = setTimeout(() => setDebounced(value), delayMs);
+    return () => clearTimeout(timer);
+  }, [value, delayMs]);
+  return debounced;
+}
+
+interface UseCategorySearchOpts {
+  query: string;
+  category: Category;
+  limit?: number;
+}
+
+export function useCategorySearch({ query, category, limit = 50 }: UseCategorySearchOpts) {
+  const debouncedQuery = useDebounce(query.trim(), 300);
+  return useQuery({
+    queryKey: ["categorySearch", { query: debouncedQuery, category, limit }],
+    queryFn: async () => {
+      const body: Record<string, unknown> = {
+        query: debouncedQuery,
+        category,
+        limit,
+      };
+      const raw = await api.post<{
+        results: ApiSearchResult[];
+        count: number;
+        query: string;
+      }>("/vault/search", body);
+      return {
+        entries: raw.results.map(transformSearchResult),
+        total: raw.count,
+      };
+    },
+    enabled: debouncedQuery.length >= 2,
   });
 }
 

@@ -5,7 +5,6 @@ import { Badge } from "../components/ui/badge";
 import { Card, CardContent } from "../components/ui/card";
 import { Label } from "../components/ui/label";
 import { Skeleton } from "../components/ui/skeleton";
-import { Switch } from "../components/ui/switch";
 import {
   Select,
   SelectContent,
@@ -36,7 +35,6 @@ export function Search() {
   const [searched, setSearched] = useState(false);
   const [showAdvanced, setShowAdvanced] = useState(false);
   const [categoryFilter, setCategoryFilter] = useState<string>("all");
-  const [hybridMode, setHybridMode] = useState(true);
   const [resultLimit, setResultLimit] = useState(10);
   const [selectedEntry, setSelectedEntry] = useState<SearchResult | null>(null);
 
@@ -114,16 +112,6 @@ export function Search() {
 
         {showAdvanced && (
           <div className="flex items-center gap-6 p-3 rounded-lg border border-border bg-card">
-            <div className="flex items-center gap-2">
-              <Label htmlFor="hybrid" className="text-xs">
-                Hybrid mode
-              </Label>
-              <Switch
-                id="hybrid"
-                checked={hybridMode}
-                onCheckedChange={setHybridMode}
-              />
-            </div>
             <div className="flex items-center gap-2">
               <Label htmlFor="limit" className="text-xs">
                 Results

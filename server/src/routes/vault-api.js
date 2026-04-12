@@ -30,6 +30,7 @@ import { validateEntryInput } from "../validation/entry-validation.js";
 import { hasScope } from "../auth/scopes.js";
 import { generateOpenApiSpec } from "../api/openapi.js";
 import { getTierLimits } from "../billing/stripe.js";
+import { computeFreshnessScore } from "../lib/freshness.js";
 
 // ─── Inlined constants (formerly @context-vault/core/constants) ──────────────
 
@@ -96,6 +97,7 @@ function isOverEntryLimit(tier, currentCount) {
  * @returns {object}
  */
 export function formatEntry(row) {
+  const { score, label } = computeFreshnessScore(row);
   return {
     id: row.id,
     kind: row.kind,
@@ -112,6 +114,13 @@ export function formatEntry(row) {
     identity_key: row.identity_key || null,
     expires_at: row.expires_at || null,
     team_id: row.team_id || null,
+    recall_count: Number(row.recall_count) || 0,
+    recall_sessions: Number(row.recall_sessions) || 0,
+    last_recalled_at: row.last_recalled_at || null,
+    last_accessed_at: row.last_accessed_at || null,
+    hit_count: Number(row.hit_count) || 0,
+    freshness_score: score,
+    freshness_label: label,
     created_at: row.created_at,
     updated_at: row.updated_at || null,
   };
@@ -442,7 +451,68 @@ export function createVaultApiRoutes() {
     if (!entry)
       return c.json({ error: "Entry not found", code: "NOT_FOUND" }, 404);
 
+    // Track access (fire-and-forget)
+    execute(
+      db,
+      "UPDATE vault SET hit_count = COALESCE(hit_count, 0) + 1, last_accessed_at = datetime('now') WHERE id = ?",
+      [id],
+    ).catch(() => {});
+
     return c.json(formatEntry(entry));
+  });
+
+  // ─── GET /api/vault/health — Vault freshness health summary ─────────────────
+
+  api.get("/api/vault/health", async (c) => {
+    const user = c.get("authUser");
+    if (!user) return c.json({ error: "Unauthorized", code: "UNAUTHORIZED" }, 401);
+    if (!hasScope(user.scopes ?? ["*"], "vault:read")) {
+      return c.json(
+        { error: "Insufficient scope. Required: vault:read", code: "FORBIDDEN" },
+        403,
+      );
+    }
+
+    const { db } = c.get("ctx");
+
+    const rows = await queryAll(
+      db,
+      "SELECT id, kind, created_at, updated_at, hit_count, recall_count, recall_sessions, last_accessed_at, last_recalled_at FROM vault WHERE user_id = ? AND (expires_at IS NULL OR expires_at > datetime('now'))",
+      [user.id],
+    );
+
+    const distribution = { fresh: 0, aging: 0, stale: 0, dormant: 0 };
+    const byKind = {};
+    let totalScore = 0;
+
+    for (const row of rows) {
+      const { score, label } = computeFreshnessScore(row);
+      distribution[label]++;
+      totalScore += score;
+
+      if (!byKind[row.kind]) {
+        byKind[row.kind] = { total: 0, totalScore: 0 };
+      }
+      byKind[row.kind].total++;
+      byKind[row.kind].totalScore += score;
+    }
+
+    const total = rows.length;
+    const byKindResult = {};
+    for (const [kind, data] of Object.entries(byKind)) {
+      byKindResult[kind] = {
+        total: data.total,
+        avg_score: data.total > 0 ? Math.round(data.totalScore / data.total) : 0,
+      };
+    }
+
+    return c.json({
+      total,
+      distribution,
+      average_score: total > 0 ? Math.round(totalScore / total) : 0,
+      needs_attention: distribution.stale + distribution.dormant,
+      by_kind: byKindResult,
+    });
   });
 
   // ─── POST /api/vault/entries — Create entry ──────────────────────────────────

@@ -8,6 +8,7 @@ export type BillingTier = "free" | "pro" | "team";
 // ─── Frontend types (used by components) ─────────────────────────────────────
 
 export type EntryVisibility = "private" | "team" | "public";
+export type FreshnessLabel = "fresh" | "aging" | "stale" | "dormant";
 
 export interface Entry {
   id: string;
@@ -24,6 +25,11 @@ export interface Entry {
   recallCount?: number;
   recallSessions?: number;
   lastRecalledAt?: Date;
+  // Freshness scoring
+  freshnessScore?: number;
+  freshnessLabel?: FreshnessLabel;
+  hitCount?: number;
+  lastAccessedAt?: Date;
   // Visibility / team sharing
   teamId?: string;
   teamName?: string;
@@ -93,6 +99,11 @@ export interface ApiEntry {
   recall_count?: number;
   recall_sessions?: number;
   last_recalled_at?: string | null;
+  // Freshness scoring
+  freshness_score?: number;
+  freshness_label?: string;
+  hit_count?: number;
+  last_accessed_at?: string | null;
   // Visibility / team sharing
   team_id?: string | null;
   team_name?: string | null;
@@ -114,6 +125,14 @@ export interface ApiKeyListItem {
   created_at: string;
   last_used?: string | null;
   expires_at?: string | null;
+}
+
+export interface ApiVaultHealthResponse {
+  total: number;
+  distribution: { fresh: number; aging: number; stale: number; dormant: number };
+  average_score: number;
+  needs_attention: number;
+  by_kind: Record<string, { total: number; avg_score: number }>;
 }
 
 export interface ApiVaultStatusResponse {
@@ -218,6 +237,12 @@ export function transformEntry(raw: ApiEntry): Entry {
     recallSessions: raw.recall_sessions ?? undefined,
     lastRecalledAt: raw.last_recalled_at
       ? new Date(raw.last_recalled_at)
+      : undefined,
+    freshnessScore: raw.freshness_score ?? undefined,
+    freshnessLabel: (raw.freshness_label as FreshnessLabel) ?? undefined,
+    hitCount: raw.hit_count ?? undefined,
+    lastAccessedAt: raw.last_accessed_at
+      ? new Date(raw.last_accessed_at)
       : undefined,
     teamId: raw.team_id || undefined,
     teamName: raw.team_name || undefined,

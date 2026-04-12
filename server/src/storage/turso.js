@@ -149,6 +149,11 @@ export async function initSchemas(client) {
     `ALTER TABLE vault ADD COLUMN content_hash TEXT`,
     `ALTER TABLE vault ADD COLUMN embedded INTEGER DEFAULT 1`,
     `CREATE INDEX IF NOT EXISTS idx_vault_embedded ON vault(embedded) WHERE embedded = 0`,
+    // Freshness scoring columns
+    `ALTER TABLE vault ADD COLUMN recall_count INTEGER DEFAULT 0`,
+    `ALTER TABLE vault ADD COLUMN recall_sessions INTEGER DEFAULT 0`,
+    `ALTER TABLE vault ADD COLUMN last_recalled_at TEXT`,
+    `ALTER TABLE vault ADD COLUMN heat_tier TEXT`,
   ];
   for (const sql of migrations) {
     try {

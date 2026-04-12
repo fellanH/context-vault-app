@@ -16,6 +16,7 @@ import type {
   ApiSearchResult,
   ApiUsageResponse,
   ApiVaultStatusResponse,
+  ApiVaultHealthResponse,
   Category,
 } from "./types";
 
@@ -63,6 +64,16 @@ export function useEntry(id: string | null) {
       return transformEntry(raw);
     },
     enabled: !!id,
+  });
+}
+
+export function useVaultHealth() {
+  return useQuery({
+    queryKey: ["vaultHealth"],
+    queryFn: async () => {
+      return api.get<ApiVaultHealthResponse>("/vault/health");
+    },
+    staleTime: 60_000,
   });
 }
 

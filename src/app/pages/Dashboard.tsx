@@ -8,7 +8,7 @@ import {
 } from "../components/ui/card";
 import { Badge } from "../components/ui/badge";
 import { Button } from "../components/ui/button";
-import { useEntries, useUsage, useApiKeys, useTeams, useTeamVaultStatus, type Team } from "../lib/hooks";
+import { useEntries, useUsage, useApiKeys, useTeams, useTeamVaultStatus, useVaultHealth, type Team } from "../lib/hooks";
 import { useAuth } from "../lib/auth";
 import {
   getOnboardingSteps,
@@ -145,6 +145,67 @@ function StatsBar({
         );
       })}
     </div>
+  );
+}
+
+function VaultHealthCard() {
+  const { data: health, isLoading } = useVaultHealth();
+
+  if (isLoading) {
+    return <div className="h-20 bg-muted rounded-lg animate-pulse" />;
+  }
+  if (!health || health.total === 0) return null;
+
+  const { distribution, average_score, needs_attention, total } = health;
+  const segments = [
+    { key: "fresh", count: distribution.fresh, color: "bg-emerald-500" },
+    { key: "aging", count: distribution.aging, color: "bg-amber-400" },
+    { key: "stale", count: distribution.stale, color: "bg-orange-500" },
+    { key: "dormant", count: distribution.dormant, color: "bg-red-500" },
+  ];
+
+  return (
+    <Card>
+      <CardContent className="py-4 px-5 space-y-3">
+        <div className="flex items-center justify-between">
+          <span className="text-sm font-medium">Vault Health</span>
+          <div className="flex items-center gap-3 text-xs text-muted-foreground">
+            <span>Avg score: <span className="font-medium text-foreground">{average_score}</span></span>
+            {needs_attention > 0 && (
+              <Link
+                to="/vault/curation"
+                className="text-orange-600 dark:text-orange-400 hover:underline"
+              >
+                {needs_attention} need attention
+              </Link>
+            )}
+          </div>
+        </div>
+        {/* Stacked bar */}
+        <div className="flex h-2.5 rounded-full overflow-hidden bg-muted">
+          {segments.map((seg) =>
+            seg.count > 0 ? (
+              <div
+                key={seg.key}
+                className={`${seg.color} transition-all`}
+                style={{ width: `${(seg.count / total) * 100}%` }}
+                title={`${seg.key}: ${seg.count}`}
+              />
+            ) : null,
+          )}
+        </div>
+        {/* Legend */}
+        <div className="flex items-center gap-4 text-[11px] text-muted-foreground">
+          {segments.map((seg) => (
+            <div key={seg.key} className="flex items-center gap-1.5">
+              <div className={`size-2 rounded-full ${seg.color}`} />
+              <span className="capitalize">{seg.key}</span>
+              <span className="font-medium text-foreground">{seg.count}</span>
+            </div>
+          ))}
+        </div>
+      </CardContent>
+    </Card>
   );
 }
 
@@ -505,6 +566,9 @@ export function Dashboard() {
           ) : usage ? (
             <StatsBar usage={usage} apiKeyCount={apiKeys?.length ?? 0} />
           ) : null}
+
+          {/* Vault health summary */}
+          <VaultHealthCard />
 
           {/* Recent entries (primary content) */}
           <Card>

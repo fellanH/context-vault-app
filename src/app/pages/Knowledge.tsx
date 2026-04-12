@@ -3,6 +3,7 @@ import type { Entry, EntryVisibility } from "../lib/types";
 import { useEntries, useCategorySearch } from "../lib/hooks";
 import { formatRelativeTime } from "../lib/format";
 import { Badge } from "../components/ui/badge";
+import { FreshnessBadge } from "../components/FreshnessBadge";
 import { Button } from "../components/ui/button";
 import { Input } from "../components/ui/input";
 import { Skeleton } from "../components/ui/skeleton";
@@ -208,6 +209,9 @@ export function Knowledge() {
                       <th className="text-left px-4 py-3 text-xs font-medium text-muted-foreground">
                         Tags
                       </th>
+                      <th className="text-left px-4 py-3 text-xs font-medium text-muted-foreground">
+                        Freshness
+                      </th>
                       <th className="text-right px-4 py-3 text-xs font-medium text-muted-foreground">
                         <button
                           className="inline-flex items-center gap-1 hover:text-foreground transition-colors"
@@ -287,6 +291,9 @@ export function Knowledge() {
                               </Badge>
                             )}
                           </div>
+                        </td>
+                        <td className="px-4 py-3">
+                          <FreshnessBadge label={entry.freshnessLabel} score={entry.freshnessScore} />
                         </td>
                         <td className="px-4 py-3 text-right">
                           <span className="text-xs text-muted-foreground tabular-nums">

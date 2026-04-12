@@ -23,6 +23,7 @@ import {
   Menu,
   X,
   Globe,
+  Sparkles,
 } from "lucide-react";
 import { useTheme } from "next-themes";
 import { Button } from "./ui/button";
@@ -52,6 +53,7 @@ const vaultItems: NavItem[] = [
   { path: "/vault/knowledge", label: "Knowledge", icon: FileText },
   { path: "/vault/entities", label: "Entities", icon: Users },
   { path: "/vault/events", label: "Events", icon: Calendar },
+  { path: "/vault/curation", label: "Curation", icon: Sparkles },
 ];
 
 const settingsItems: NavItem[] = [
@@ -72,6 +74,7 @@ function getPageTitle(pathname: string): string {
   if (pathname.startsWith("/team/")) return "Team";
   if (pathname === "/import") return "Import";
   if (pathname === "/changelog") return "What's New";
+  if (pathname === "/vault/curation") return "Curation";
   const all = [...mainItems, ...vaultItems, ...settingsItems];
   const match = all.find((item) =>
     item.path === "/" ? pathname === "/" : pathname.startsWith(item.path),

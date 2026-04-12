@@ -25,6 +25,7 @@ import { Changelog } from "./pages/Changelog";
 import { PublicVaultsDirectory } from "./pages/PublicVaultsDirectory";
 import { PublicVaultsDashboard } from "./pages/PublicVaultsDashboard";
 import { PublicVaultsCreate } from "./pages/PublicVaultsCreate";
+import { Curation } from "./pages/Curation";
 
 export const router = createBrowserRouter([
   { path: "/login", Component: Login },
@@ -42,6 +43,7 @@ export const router = createBrowserRouter([
       { path: "vault/knowledge", Component: Knowledge },
       { path: "vault/entities", Component: Entities },
       { path: "vault/events", Component: Events },
+      { path: "vault/curation", Component: Curation },
       { path: "public-vaults", Component: PublicVaultsDirectory },
       { path: "public-vaults/new", Component: PublicVaultsCreate },
       { path: "public-vaults/:slug", Component: PublicVaultsDashboard },

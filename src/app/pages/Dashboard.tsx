@@ -8,7 +8,6 @@ import {
 } from "../components/ui/card";
 import { Badge } from "../components/ui/badge";
 import { Button } from "../components/ui/button";
-import { UsageMeter } from "../components/UsageMeter";
 import { useEntries, useUsage, useApiKeys, useTeams, useTeamVaultStatus, type Team } from "../lib/hooks";
 import { useAuth } from "../lib/auth";
 import {
@@ -22,7 +21,7 @@ import {
   setOnboardingMode,
   type OnboardingMode,
 } from "../lib/onboarding";
-import { formatMegabytes, formatRelativeTime } from "../lib/format";
+import { formatRelativeTime } from "../lib/format";
 import {
   FileText,
   HardDrive,
@@ -39,7 +38,6 @@ import {
   Link2,
   ChevronDown,
   ScrollText,
-  RotateCcw,
   Users,
   ArrowRight,
 } from "lucide-react";
@@ -112,6 +110,44 @@ function TeamRow({ team }: { team: Team }) {
   );
 }
 
+// Compact inline stats bar for connected users
+function StatsBar({
+  usage,
+  apiKeyCount,
+}: {
+  usage: {
+    entries: { used: number };
+    storage: { usedMb: number };
+    requestsToday: { used: number };
+  };
+  apiKeyCount: number;
+}) {
+  const stats = [
+    { label: "Entries", value: String(usage.entries.used), icon: FileText },
+    { label: "Storage", value: `${usage.storage.usedMb.toFixed(1)} MB`, icon: HardDrive },
+    { label: "Today", value: String(usage.requestsToday.used), icon: Zap },
+    { label: "API Keys", value: String(apiKeyCount), icon: Key },
+  ];
+
+  return (
+    <div className="flex items-center gap-6 rounded-lg border bg-card px-4 py-2.5">
+      {stats.map((s, i) => {
+        const Icon = s.icon;
+        return (
+          <div key={s.label} className="flex items-center gap-4">
+            {i > 0 && <div className="w-px h-4 bg-border" />}
+            <div className="flex items-center gap-2">
+              <Icon className="size-3.5 text-muted-foreground" />
+              <span className="text-sm font-medium">{s.value}</span>
+              <span className="text-xs text-muted-foreground">{s.label}</span>
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 export function Dashboard() {
   const { user } = useAuth();
   const navigate = useNavigate();
@@ -122,16 +158,11 @@ export function Dashboard() {
   } = useEntries({
     limit: 10,
   });
-  const { data: recallData, isLoading: recallLoading } = useEntries({
-    limit: 100,
-  });
   const { data: usage, isLoading: usageLoading, isError: usageError } = useUsage();
   const { data: apiKeys } = useApiKeys();
 
   const entriesUsed = usage?.entries.used ?? 0;
   const hasMcpActivity = (apiKeys ?? []).some((key) => Boolean(key.lastUsedAt));
-  const mcpCallsToday = usage?.requestsToday.used ?? 0;
-  const mcpCallsThisWeek = usage?.requestsThisWeek.used ?? 0;
 
   const [onboardingMode, setOnboardingModeState] =
     useState<OnboardingMode | null>(() => getOnboardingMode());
@@ -196,81 +227,6 @@ export function Dashboard() {
     setOnboardingMode(mode);
     setOnboardingModeState(mode);
   };
-
-  const isUnlimited = (limit: number) => !Number.isFinite(limit);
-
-  const usageCards = usage
-    ? [
-        {
-          label: "Entries",
-          icon: FileText,
-          used: usage.entries.used,
-          limit: usage.entries.limit,
-          display: `${usage.entries.used}`,
-          sub: isUnlimited(usage.entries.limit)
-            ? null
-            : `of ${usage.entries.limit}`,
-        },
-        {
-          label: "Storage",
-          icon: HardDrive,
-          used: usage.storage.usedMb,
-          limit: usage.storage.limitMb,
-          display: `${formatMegabytes(usage.storage.usedMb)} MB`,
-          sub: isUnlimited(usage.storage.limitMb)
-            ? null
-            : `of ${formatMegabytes(usage.storage.limitMb)} MB`,
-        },
-        {
-          label: "Requests Today",
-          icon: Zap,
-          used: usage.requestsToday.used,
-          limit: usage.requestsToday.limit,
-          display: `${usage.requestsToday.used}`,
-          sub: isUnlimited(usage.requestsToday.limit)
-            ? null
-            : `of ${usage.requestsToday.limit}`,
-        },
-        {
-          label: "API Keys",
-          icon: Key,
-          used: apiKeys?.length ?? 0,
-          limit: Infinity,
-          display: `${apiKeys?.length ?? 0} active`,
-          sub: null,
-        },
-      ]
-    : [];
-
-  // Recall Stats
-  const allEntries = recallData?.entries ?? [];
-  const recalledEntries = allEntries.filter((e) => (e.recallCount ?? 0) > 0);
-  const totalRecalls = recalledEntries.reduce(
-    (sum, e) => sum + (e.recallCount ?? 0),
-    0,
-  );
-  const topRecalled = recalledEntries
-    .slice()
-    .sort((a, b) => (b.recallCount ?? 0) - (a.recallCount ?? 0))
-    .slice(0, 5);
-  const hasRecallData = recalledEntries.length > 0;
-
-  const recallDistribution = (() => {
-    const buckets = [
-      { label: "0", min: 0, max: 0, count: 0 },
-      { label: "1-5", min: 1, max: 5, count: 0 },
-      { label: "6-20", min: 6, max: 20, count: 0 },
-      { label: "21-50", min: 21, max: 50, count: 0 },
-      { label: "51+", min: 51, max: Infinity, count: 0 },
-    ];
-    for (const e of allEntries) {
-      const rc = e.recallCount ?? 0;
-      const bucket = buckets.find((b) => rc >= b.min && rc <= b.max);
-      if (bucket) bucket.count++;
-    }
-    return buckets;
-  })();
-  const maxBucketCount = Math.max(...recallDistribution.map((b) => b.count), 1);
 
   const { data: teams, isLoading: teamsLoading } = useTeams();
 
@@ -540,193 +496,116 @@ export function Dashboard() {
         </>
       )}
 
-      {/* Usage Overview (always visible) */}
-      {usageLoading ? (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-          {[1, 2, 3, 4].map((i) => (
-            <Card key={i}>
-              <CardHeader className="pb-2">
-                <div className="h-4 w-16 bg-muted rounded animate-pulse" />
-              </CardHeader>
-              <CardContent className="space-y-2">
-                <div className="h-8 w-20 bg-muted rounded animate-pulse" />
-                <div className="h-1.5 bg-muted rounded animate-pulse" />
-              </CardContent>
-            </Card>
-          ))}
-        </div>
-      ) : (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-          {usageCards.map((card) => {
-            const Icon = card.icon;
-            const unlimited = isUnlimited(card.limit);
-            const pct =
-              !unlimited && card.limit > 0 ? (card.used / card.limit) * 100 : 0;
-            const isWarning = !unlimited && pct >= 80;
-            const isCritical = !unlimited && pct >= 100;
-
-            return (
-              <Card key={card.label}>
-                <CardHeader className="pb-2">
-                  <div className="flex items-center justify-between">
-                    <CardTitle className="text-xs font-medium text-muted-foreground">
-                      {card.label}
-                    </CardTitle>
-                    <Icon className="size-4 text-muted-foreground" />
-                  </div>
-                </CardHeader>
-                <CardContent className="space-y-2">
-                  <div className="flex items-baseline gap-1.5">
-                    <span
-                      className={`text-2xl font-semibold ${isCritical ? "text-red-500" : isWarning ? "text-amber-500" : ""}`}
-                    >
-                      {card.display}
-                    </span>
-                    {card.sub && (
-                      <span className="text-xs text-muted-foreground">
-                        {card.sub}
-                      </span>
-                    )}
-                  </div>
-                  {!unlimited && (
-                    <UsageMeter used={card.used} limit={card.limit} />
-                  )}
-                  {isCritical && (
-                    <Link
-                      to="/settings/billing"
-                      className="text-xs text-red-500 hover:underline"
-                    >
-                      Upgrade to increase limit
-                    </Link>
-                  )}
-                </CardContent>
-              </Card>
-            );
-          })}
-        </div>
-      )}
-
-      {/* ── Connected user layout ── */}
+      {/* ── Connected user layout (vault-first) ── */}
       {isConnected && (
         <>
-          {/* Row 1: Recent Activity + MCP Activity */}
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-            {/* Recent Activity */}
-            <Card>
-              <CardHeader className="pb-3">
-                <div className="flex items-center justify-between">
-                  <CardTitle className="text-base">Recent Activity</CardTitle>
+          {/* Compact stats bar */}
+          {usageLoading ? (
+            <div className="h-10 bg-muted rounded-lg animate-pulse" />
+          ) : usage ? (
+            <StatsBar usage={usage} apiKeyCount={apiKeys?.length ?? 0} />
+          ) : null}
+
+          {/* Recent entries (primary content) */}
+          <Card>
+            <CardHeader className="pb-3">
+              <div className="flex items-center justify-between">
+                <CardTitle className="text-base">Recent Entries</CardTitle>
+                <div className="flex items-center gap-2">
                   {entries.length > 0 && (
                     <Button variant="ghost" size="sm" asChild className="text-xs h-7">
                       <Link to="/vault/knowledge">View all</Link>
                     </Button>
                   )}
                 </div>
-              </CardHeader>
-              <CardContent>
-                {entriesLoading ? (
-                  <div className="space-y-3 py-2">
-                    {[1, 2, 3].map((i) => (
-                      <div key={i} className="flex items-center justify-between py-2">
-                        <div className="flex items-center gap-3">
-                          <div className="h-4 w-48 bg-muted rounded animate-pulse" />
-                          <div className="h-4 w-16 bg-muted rounded animate-pulse" />
-                        </div>
-                        <div className="h-4 w-12 bg-muted rounded animate-pulse" />
+              </div>
+            </CardHeader>
+            <CardContent>
+              {entriesLoading ? (
+                <div className="space-y-3 py-2">
+                  {[1, 2, 3, 4, 5].map((i) => (
+                    <div key={i} className="flex items-center justify-between py-2">
+                      <div className="flex items-center gap-3">
+                        <div className="h-4 w-48 bg-muted rounded animate-pulse" />
+                        <div className="h-4 w-16 bg-muted rounded animate-pulse" />
                       </div>
-                    ))}
-                  </div>
-                ) : entries.length === 0 ? (
-                  <p className="text-sm text-muted-foreground text-center py-6">
-                    No entries yet. Save your first entry to see activity here.
-                  </p>
-                ) : (
-                  <div className="space-y-2">
-                    {entries
-                      .slice()
-                      .sort((a, b) => b.created.getTime() - a.created.getTime())
-                      .slice(0, 10)
-                      .map((entry) => (
-                        <div
-                          key={entry.id}
-                          className="flex items-center justify-between py-2 border-b border-border last:border-0"
-                        >
-                          <div className="flex items-center gap-3 min-w-0">
-                            <span className="text-sm font-medium truncate">
-                              {entry.title}
-                            </span>
-                            <Badge
-                              variant={
-                                entry.category === "knowledge"
-                                  ? "default"
-                                  : entry.category === "entity"
-                                    ? "outline"
-                                    : "secondary"
-                              }
-                              className="text-[10px] shrink-0"
-                            >
-                              {entry.category}
-                            </Badge>
-                            <Badge
-                              variant="secondary"
-                              className="text-[10px] shrink-0"
-                            >
-                              {entry.kind}
-                            </Badge>
-                          </div>
-                          <span className="text-xs text-muted-foreground whitespace-nowrap ml-4">
-                            {formatRelativeTime(entry.created)}
+                      <div className="h-4 w-12 bg-muted rounded animate-pulse" />
+                    </div>
+                  ))}
+                </div>
+              ) : entries.length === 0 ? (
+                <p className="text-sm text-muted-foreground text-center py-6">
+                  No entries yet. Save your first entry to see it here.
+                </p>
+              ) : (
+                <div className="space-y-1">
+                  {entries
+                    .slice()
+                    .sort((a, b) => b.updated.getTime() - a.updated.getTime())
+                    .slice(0, 10)
+                    .map((entry) => (
+                      <Link
+                        key={entry.id}
+                        to={`/vault/${entry.category}/${entry.id}`}
+                        className="flex items-center justify-between py-2 px-2 rounded-md hover:bg-muted/50 transition-colors group"
+                      >
+                        <div className="flex items-center gap-3 min-w-0">
+                          <span className="text-sm font-medium truncate group-hover:text-primary transition-colors">
+                            {entry.title}
                           </span>
+                          <Badge
+                            variant={
+                              entry.category === "knowledge"
+                                ? "default"
+                                : entry.category === "entity"
+                                  ? "outline"
+                                  : "secondary"
+                            }
+                            className="text-[10px] shrink-0"
+                          >
+                            {entry.category}
+                          </Badge>
+                          <Badge
+                            variant="secondary"
+                            className="text-[10px] shrink-0"
+                          >
+                            {entry.kind}
+                          </Badge>
                         </div>
-                      ))}
-                  </div>
-                )}
-              </CardContent>
-            </Card>
+                        <span className="text-xs text-muted-foreground whitespace-nowrap ml-4">
+                          {formatRelativeTime(entry.updated)}
+                        </span>
+                      </Link>
+                    ))}
+                </div>
+              )}
+            </CardContent>
+          </Card>
 
-            {/* MCP Activity */}
-            <Card>
-              <CardHeader className="pb-2">
-                <div className="flex items-center gap-2">
-                  <CardTitle className="text-xs font-medium text-muted-foreground">
-                    MCP Activity
-                  </CardTitle>
-                  <Zap className="size-3.5 text-muted-foreground ml-auto" />
-                </div>
-              </CardHeader>
-              <CardContent>
-                <div className="flex items-center gap-6">
-                  <div>
-                    <p className="text-2xl font-semibold">
-                      {usageLoading ? (
-                        <span className="inline-block h-7 w-10 bg-muted rounded animate-pulse" />
-                      ) : (
-                        mcpCallsToday
-                      )}
-                    </p>
-                    <p className="text-xs text-muted-foreground mt-0.5">Today</p>
-                  </div>
-                  <div className="w-px h-8 bg-border" />
-                  <div>
-                    <p className="text-2xl font-semibold">
-                      {usageLoading ? (
-                        <span className="inline-block h-7 w-10 bg-muted rounded animate-pulse" />
-                      ) : (
-                        mcpCallsThisWeek
-                      )}
-                    </p>
-                    <p className="text-xs text-muted-foreground mt-0.5">
-                      This week
-                    </p>
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
+          {/* Quick Actions */}
+          <div className="flex flex-wrap gap-3">
+            <Button variant="outline" asChild>
+              <Link to="/search">
+                <Search className="size-4 mr-1.5" />
+                Search vault
+              </Link>
+            </Button>
+            <Button variant="outline" asChild>
+              <Link to="/vault/knowledge">
+                <Plus className="size-4 mr-1.5" />
+                New Entry
+              </Link>
+            </Button>
+            <Button variant="outline" asChild>
+              <Link to="/settings/data">
+                <Upload className="size-4 mr-1.5" />
+                Import data
+              </Link>
+            </Button>
           </div>
 
-          {/* Row 2: Teams + Recall Tracking */}
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-            {/* Your Teams */}
+          {/* Teams (secondary) */}
+          {((teams ?? []).length > 0 || teamsLoading) && (
             <Card>
               <CardHeader className="pb-3">
                 <div className="flex items-center justify-between">
@@ -751,18 +630,6 @@ export function Dashboard() {
                       <div key={i} className="h-12 bg-muted rounded animate-pulse" />
                     ))}
                   </div>
-                ) : (teams ?? []).length === 0 ? (
-                  <div className="text-center py-6 space-y-3">
-                    <p className="text-sm text-muted-foreground">
-                      Create a team to share knowledge with your colleagues
-                    </p>
-                    <Button variant="outline" size="sm" asChild>
-                      <Link to="/team/new">
-                        <Plus className="size-4 mr-1.5" />
-                        Create a team
-                      </Link>
-                    </Button>
-                  </div>
                 ) : (
                   <div className="space-y-1">
                     {(teams ?? []).map((team) => (
@@ -772,158 +639,7 @@ export function Dashboard() {
                 )}
               </CardContent>
             </Card>
-
-            {/* Recall Tracking */}
-            <Card>
-              <CardHeader className="pb-3">
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-2">
-                    <CardTitle className="text-base">Recall Tracking</CardTitle>
-                    <RotateCcw className="size-4 text-muted-foreground" />
-                  </div>
-                  {!hasRecallData && !recallLoading && (
-                    <Badge variant="outline" className="text-[10px]">
-                      Awaiting data
-                    </Badge>
-                  )}
-                </div>
-              </CardHeader>
-              <CardContent>
-                {recallLoading ? (
-                  <div className="space-y-3 py-2">
-                    {[1, 2, 3].map((i) => (
-                      <div key={i} className="h-4 w-48 bg-muted rounded animate-pulse" />
-                    ))}
-                  </div>
-                ) : !hasRecallData ? (
-                  <p className="text-sm text-muted-foreground py-4">
-                    Recall data appears after your first agent session.
-                  </p>
-                ) : (
-                  <div className="space-y-5">
-                    {/* Summary stats */}
-                    <div className="grid grid-cols-3 gap-4">
-                      <div className="text-center p-3 rounded-lg bg-muted/50">
-                        <p className="text-2xl font-semibold">{totalRecalls}</p>
-                        <p className="text-xs text-muted-foreground mt-1">
-                          Total recalls
-                        </p>
-                      </div>
-                      <div className="text-center p-3 rounded-lg bg-muted/50">
-                        <p className="text-2xl font-semibold">
-                          {recalledEntries.length}
-                        </p>
-                        <p className="text-xs text-muted-foreground mt-1">
-                          Entries recalled
-                        </p>
-                      </div>
-                      <div className="text-center p-3 rounded-lg bg-muted/50">
-                        <p className="text-2xl font-semibold">
-                          {allEntries.length > 0
-                            ? `${Math.round((recalledEntries.length / allEntries.length) * 100)}%`
-                            : "0%"}
-                        </p>
-                        <p className="text-xs text-muted-foreground mt-1">
-                          Recall rate
-                        </p>
-                      </div>
-                    </div>
-
-                    {/* Distribution bar chart */}
-                    <div>
-                      <p className="text-xs font-medium text-muted-foreground mb-2">
-                        Recall distribution
-                      </p>
-                      <div className="flex items-end gap-2 h-20">
-                        {recallDistribution.map((bucket) => (
-                          <div
-                            key={bucket.label}
-                            className="flex-1 flex flex-col items-center gap-1"
-                          >
-                            <span className="text-[10px] text-muted-foreground">
-                              {bucket.count}
-                            </span>
-                            <div
-                              className="w-full bg-primary/20 rounded-t transition-all"
-                              style={{
-                                height: `${Math.max((bucket.count / maxBucketCount) * 56, 2)}px`,
-                              }}
-                            >
-                              <div
-                                className="w-full bg-primary rounded-t"
-                                style={{
-                                  height: `${Math.max((bucket.count / maxBucketCount) * 56, 2)}px`,
-                                }}
-                              />
-                            </div>
-                            <span className="text-[10px] text-muted-foreground">
-                              {bucket.label}
-                            </span>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-
-                    {/* Top recalled entries */}
-                    {topRecalled.length > 0 && (
-                      <div>
-                        <p className="text-xs font-medium text-muted-foreground mb-2">
-                          Most recalled entries
-                        </p>
-                        <div className="space-y-1.5">
-                          {topRecalled.map((entry) => (
-                            <div
-                              key={entry.id}
-                              className="flex items-center justify-between py-1.5 px-2 rounded hover:bg-muted/30"
-                            >
-                              <div className="flex items-center gap-2 min-w-0">
-                                <span className="text-sm truncate">{entry.title}</span>
-                                <Badge variant="secondary" className="text-[10px] shrink-0">
-                                  {entry.kind}
-                                </Badge>
-                              </div>
-                              <div className="flex items-center gap-3 shrink-0 ml-3">
-                                <span className="text-sm font-medium">
-                                  {entry.recallCount}
-                                </span>
-                                {entry.lastRecalledAt && (
-                                  <span className="text-xs text-muted-foreground">
-                                    {formatRelativeTime(entry.lastRecalledAt)}
-                                  </span>
-                                )}
-                              </div>
-                            </div>
-                          ))}
-                        </div>
-                      </div>
-                    )}
-                  </div>
-                )}
-              </CardContent>
-            </Card>
-          </div>
-
-          {/* Quick Actions */}
-          <div className="flex flex-wrap gap-3">
-            <Button variant="outline" asChild>
-              <Link to="/search">
-                <Search className="size-4 mr-1.5" />
-                Search vault
-              </Link>
-            </Button>
-            <Button variant="outline" asChild>
-              <Link to="/vault/knowledge">
-                <Plus className="size-4 mr-1.5" />
-                New Entry
-              </Link>
-            </Button>
-            <Button variant="outline" asChild>
-              <Link to="/settings/data">
-                <Upload className="size-4 mr-1.5" />
-                Import data
-              </Link>
-            </Button>
-          </div>
+          )}
         </>
       )}
     </div>

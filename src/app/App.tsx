@@ -5,7 +5,13 @@ import { Toaster } from "./components/ui/sonner";
 import { AuthProvider } from "./components/AuthProvider";
 import { router } from "./routes";
 
-const queryClient = new QueryClient();
+const queryClient = new QueryClient({
+  defaultOptions: {
+    queries: {
+      staleTime: 30_000,
+    },
+  },
+});
 
 function App() {
   return (

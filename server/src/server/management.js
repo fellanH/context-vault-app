@@ -334,7 +334,7 @@ export function createManagementRoutes() {
     const stripeCustomerId = user.stripeCustomerId || null;
     if (stripeCustomerId) {
       try {
-        const s = await getStripe();
+        const s = await getStripe(c.env);
         if (s) {
           const subs = await s.subscriptions.list({
             customer: stripeCustomerId,

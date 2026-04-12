@@ -243,10 +243,11 @@ async function updateEntry(db, ai, existing, updates) {
   fields.push("updated_at = ?");
   args.push(now);
   args.push(existing.id);
+  args.push(existing.user_id);
 
   await execute(
     db,
-    `UPDATE vault SET ${fields.join(", ")} WHERE id = ?`,
+    `UPDATE vault SET ${fields.join(", ")} WHERE id = ? AND user_id = ?`,
     args,
   );
 
@@ -1219,14 +1220,27 @@ export function createVaultApiRoutes() {
           meta || "{}",
         );
 
-        // Upsert: if ID exists, update; otherwise insert
-        // Use INSERT OR REPLACE for simplicity
+        // Upsert: insert if new, update only if owned by this user
         await execute(
           db,
-          `INSERT OR REPLACE INTO vault
+          `INSERT INTO vault
              (id, user_id, kind, category, title, body, meta, tags, source,
               identity_key, expires_at, content_hash, embedded, created_at, updated_at)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?)`,
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?)
+           ON CONFLICT(id) DO UPDATE SET
+              kind = excluded.kind,
+              category = excluded.category,
+              title = excluded.title,
+              body = excluded.body,
+              meta = excluded.meta,
+              tags = excluded.tags,
+              source = excluded.source,
+              identity_key = excluded.identity_key,
+              expires_at = excluded.expires_at,
+              content_hash = excluded.content_hash,
+              embedded = 0,
+              updated_at = excluded.updated_at
+           WHERE vault.user_id = ?`,
           [
             id,
             user.id,
@@ -1242,6 +1256,7 @@ export function createVaultApiRoutes() {
             contentHash,
             entry.created_at || now,
             entry.updated_at || now,
+            user.id,
           ],
         );
         uploaded++;
@@ -1366,13 +1381,13 @@ export function createVaultApiRoutes() {
     // Generate embeddings (results discarded for now; vector storage not yet implemented)
     await embedBatch(ai, texts);
 
-    // Mark entries as embedded
+    // Mark entries as embedded (user_id guard prevents cross-user writes)
     const ids = rows.map((r) => r.id);
     const placeholders = ids.map(() => "?").join(",");
     await execute(
       db,
-      `UPDATE vault SET embedded = 1 WHERE id IN (${placeholders})`,
-      ids,
+      `UPDATE vault SET embedded = 1 WHERE id IN (${placeholders}) AND user_id = ?`,
+      [...ids, user.id],
     );
 
     // Update job progress

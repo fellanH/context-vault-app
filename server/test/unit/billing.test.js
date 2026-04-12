@@ -8,17 +8,17 @@ import { getTierLimits, isOverEntryLimit } from "../../src/billing/stripe.js";
 describe("tier limits", () => {
   it("returns free tier limits by default", () => {
     const limits = getTierLimits("free");
-    expect(limits.maxEntries).toBe(Infinity);
-    expect(limits.storageMb).toBe(50);
-    expect(limits.requestsPerDay).toBe(200);
+    expect(limits.maxEntries).toBe(10000);
+    expect(limits.storageMb).toBe(1024);
+    expect(limits.requestsPerDay).toBe(5000);
     expect(limits.apiKeys).toBe(Infinity);
-    expect(limits.exportEnabled).toBe(false);
+    expect(limits.exportEnabled).toBe(true);
   });
 
   it("returns pro tier limits", () => {
     const limits = getTierLimits("pro");
-    expect(limits.maxEntries).toBe(Infinity);
-    expect(limits.storageMb).toBe(5120);
+    expect(limits.maxEntries).toBe(50000);
+    expect(limits.storageMb).toBe(10240);
     expect(limits.requestsPerDay).toBe(Infinity);
     expect(limits.apiKeys).toBe(Infinity);
     expect(limits.exportEnabled).toBe(true);
@@ -26,8 +26,8 @@ describe("tier limits", () => {
 
   it("returns team tier limits", () => {
     const limits = getTierLimits("team");
-    expect(limits.maxEntries).toBe(Infinity);
-    expect(limits.storageMb).toBe(20480);
+    expect(limits.maxEntries).toBe(200000);
+    expect(limits.storageMb).toBe(51200);
     expect(limits.requestsPerDay).toBe(Infinity);
     expect(limits.apiKeys).toBe(Infinity);
     expect(limits.exportEnabled).toBe(true);
@@ -35,9 +35,9 @@ describe("tier limits", () => {
 
   it("defaults to free for unknown tiers", () => {
     const limits = getTierLimits("unknown");
-    expect(limits.maxEntries).toBe(Infinity);
+    expect(limits.maxEntries).toBe(10000);
     expect(limits.apiKeys).toBe(Infinity);
-    expect(limits.exportEnabled).toBe(false);
+    expect(limits.exportEnabled).toBe(true);
   });
 
   it("all tiers have all required fields", () => {
@@ -53,15 +53,17 @@ describe("tier limits", () => {
 });
 
 describe("entry limit enforcement", () => {
-  it("free tier is never over entry limit (storage is the gate)", () => {
+  it("free tier is over entry limit at maxEntries", () => {
     expect(isOverEntryLimit("free", 0)).toBe(false);
     expect(isOverEntryLimit("free", 500)).toBe(false);
-    expect(isOverEntryLimit("free", 100000)).toBe(false);
+    expect(isOverEntryLimit("free", 9999)).toBe(false);
+    expect(isOverEntryLimit("free", 10000)).toBe(true);
   });
 
-  it("pro tier is never over limit", () => {
+  it("pro tier is over limit at maxEntries", () => {
     expect(isOverEntryLimit("pro", 0)).toBe(false);
-    expect(isOverEntryLimit("pro", 100000)).toBe(false);
+    expect(isOverEntryLimit("pro", 49999)).toBe(false);
+    expect(isOverEntryLimit("pro", 50000)).toBe(true);
   });
 
   it("team tier is never over limit", () => {
@@ -69,8 +71,9 @@ describe("entry limit enforcement", () => {
     expect(isOverEntryLimit("team", 100000)).toBe(false);
   });
 
-  it("unknown tier falls back to free (unlimited entries)", () => {
+  it("unknown tier falls back to free limits", () => {
     expect(isOverEntryLimit("nonexistent", 500)).toBe(false);
-    expect(isOverEntryLimit("nonexistent", 100000)).toBe(false);
+    expect(isOverEntryLimit("nonexistent", 9999)).toBe(false);
+    expect(isOverEntryLimit("nonexistent", 10000)).toBe(true);
   });
 });

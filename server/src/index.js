@@ -17,6 +17,7 @@ import { bodyLimit } from "hono/body-limit";
 import { createAuth } from "./auth/auth.js";
 import { vaultAuth } from "./middleware/auth.js";
 import { vaultDbRouting } from "./middleware/vault-db.js";
+import { rateLimit } from "./middleware/rate-limit.js";
 import { requestLogger } from "./middleware/logger.js";
 import { createWorkerCtx } from "./storage/workers-ctx.js";
 import { createManagementRoutes } from "./server/management.js";
@@ -136,6 +137,7 @@ app.route("/", createManagementRoutes());
 // ─── Vault REST API ──────────────────────────────────────────────────────────
 
 app.use("/api/vault/*", vaultAuth());
+app.use("/api/vault/*", rateLimit());
 app.use("/api/vault/*", vaultDbRouting());
 app.route("/", createVaultApiRoutes());
 

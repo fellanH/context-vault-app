@@ -62,27 +62,31 @@ export function requireAuth() {
 }
 
 /**
- * Validate an API key against the Turso database.
- * Returns the user object or null.
- *
- * @param {import("@libsql/client").Client} db
- * @param {string} token
+ * Hash an API key token using SHA-256 + base64url (matches better-auth's defaultKeyHasher).
  */
+async function hashApiKey(token) {
+  const data = new TextEncoder().encode(token);
+  const hashBuf = await crypto.subtle.digest("SHA-256", data);
+  // base64url without padding, matching better-auth's defaultKeyHasher
+  const bytes = new Uint8Array(hashBuf);
+  let binary = "";
+  for (let i = 0; i < bytes.length; i++) binary += String.fromCharCode(bytes[i]);
+  return btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+}
+
 async function validateApiKeyFromDb(db, token) {
-  // better-auth stores API keys hashed; look up by the key prefix for fast lookup
-  // then verify. The actual key verification logic depends on how better-auth
-  // stores keys. We query for an active key matching the token.
+  const hashedToken = await hashApiKey(token);
   const result = await db.execute({
     sql: `
-      SELECT ak.id as key_id, ak.user_id, ak.name, ak.scopes,
-             u.email, u.tier, u.stripe_customer_id
-      FROM api_keys ak
-      JOIN users u ON u.id = ak.user_id
-      WHERE ak.key = ? AND (ak.expires_at IS NULL OR ak.expires_at > datetime('now'))
+      SELECT ak.id as key_id, ak."referenceId" as user_id, ak.name, ak.permissions,
+             u.email, u.tier, u."stripeCustomerId" as stripe_customer_id
+      FROM apikey ak
+      JOIN "user" u ON u.id = ak."referenceId"
+      WHERE ak.key = ? AND (ak."expiresAt" IS NULL OR ak."expiresAt" > datetime('now'))
         AND ak.enabled = 1
       LIMIT 1
     `,
-    args: [token],
+    args: [hashedToken],
   });
 
   if (!result.rows || result.rows.length === 0) return null;
@@ -93,7 +97,7 @@ async function validateApiKeyFromDb(db, token) {
     email: row.email,
     tier: row.tier || "free",
     keyId: row.key_id,
-    scopes: row.scopes ? JSON.parse(row.scopes) : ["*"],
+    scopes: row.permissions ? JSON.parse(row.permissions) : ["*"],
     stripeCustomerId: row.stripe_customer_id || null,
   };
 }

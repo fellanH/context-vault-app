@@ -17,8 +17,15 @@ import { checkAndSendUsageAlerts } from "../email/usage-alerts.js";
  */
 export function rateLimit() {
   return async (c, next) => {
-    const user = c.get("user");
-    if (!user) return c.json({ error: "Unauthorized" }, 401);
+    // Support both auth shapes: c.get("user").userId and c.get("authUser").id
+    const rawUser = c.get("user") || c.get("authUser");
+    if (!rawUser) return c.json({ error: "Unauthorized" }, 401);
+
+    const user = {
+      userId: rawUser.userId || rawUser.id,
+      email: rawUser.email,
+      tier: rawUser.tier || "free",
+    };
 
     const limits = getTierLimits(user.tier);
     const db = c.get("ctx")?.db;

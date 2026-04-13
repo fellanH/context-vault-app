@@ -1,4 +1,5 @@
-import { useState, useRef, useMemo } from "react";
+import { useState, useRef, useMemo, useEffect } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 import {
   Card,
   CardContent,
@@ -19,13 +20,29 @@ import {
   AlertCircle,
   ChevronDown,
 } from "lucide-react";
-import { useStreamImport, useJobStatus } from "../lib/hooks";
+import { useJobStatus } from "../lib/hooks";
+import {
+  streamImport,
+  pollVaultImportJobUntilTerminal,
+} from "../lib/api";
 import { toast } from "sonner";
 import { Link } from "react-router";
 
 // ─── Types ──────────────────────────────────────────────────────────────────
 
 type ImportState = "select" | "preview" | "uploading" | "indexing" | "complete";
+
+type PreviewSource = "markdown" | "json";
+
+/** Staged markdown files — bodies read only during upload batches (memory-safe). */
+interface FolderRow {
+  file: File;
+  relPath: string;
+  size: number;
+  selected: boolean;
+  kindGuess: string;
+  titleGuess: string;
+}
 
 interface ParsedEntry {
   file: File;
@@ -41,6 +58,14 @@ interface ParsedEntry {
   selected: boolean;
   size: number;
 }
+
+// ─── Large-import tuning ─────────────────────────────────────────────────────
+
+/** Stay under server `bodyLimit` (32 MiB) with JSON escaping overhead */
+const FOLDER_IMPORT_MAX_BATCH_BYTES = 24 * 1024 * 1024;
+
+/** Per-file list UI — above this, show summary + global select only */
+const FOLDER_PREVIEW_LIST_CAP = 500;
 
 // ─── Frontmatter parsing (kept from original) ──────────────────────────────
 
@@ -148,127 +173,302 @@ function entriesToNdjson(entries: ParsedEntry[]): string {
     .join("\n");
 }
 
+async function fileToNdjsonLine(file: File, relPath: string): Promise<string> {
+  const raw = await file.text();
+  const { meta, body } = parseFrontmatter(raw);
+  const kind = (meta.kind as string) || guessKindFromPath(relPath || file.name);
+  const title = (meta.title as string) || file.name.replace(/\.md$/, "");
+  const obj: Record<string, unknown> = {
+    kind,
+    body,
+    tags: (meta.tags as string[]) || [],
+    source: (meta.source as string) || "import",
+  };
+  if (title) obj.title = title;
+  const idKey = meta.identity_key as string | undefined;
+  if (idKey) obj.identity_key = idKey;
+  const exp = meta.expires_at as string | undefined;
+  if (exp) obj.expires_at = exp;
+  const created = meta.created as string | undefined;
+  if (created) obj.created_at = created;
+  const m = extractCustomMeta(meta);
+  if (m) obj.meta = m;
+  return JSON.stringify(obj);
+}
+
+const textEncoder = new TextEncoder();
+
+async function* ndjsonBatchesFromFolderRows(
+  rows: FolderRow[],
+  maxBatchBytes: number,
+  signal?: AbortSignal,
+): AsyncGenerator<{ ndjson: string; lineCount: number }> {
+  let lines: string[] = [];
+  let batchBytes = 0;
+
+  for (const row of rows) {
+    if (signal?.aborted) {
+      throw new DOMException("Import cancelled", "AbortError");
+    }
+    const line = await fileToNdjsonLine(row.file, row.relPath);
+    const lineBytes = textEncoder.encode(`${line}\n`).length;
+
+    if (lineBytes > maxBatchBytes) {
+      throw new Error(
+        `One file is larger than the ${Math.round(maxBatchBytes / (1024 * 1024))} MiB web import limit (${row.relPath}). Use the CLI or split the file.`,
+      );
+    }
+
+    if (lines.length > 0 && batchBytes + lineBytes > maxBatchBytes) {
+      yield { ndjson: lines.join("\n"), lineCount: lines.length };
+      lines = [];
+      batchBytes = 0;
+    }
+    lines.push(line);
+    batchBytes += lineBytes;
+  }
+
+  if (lines.length > 0) {
+    yield { ndjson: lines.join("\n"), lineCount: lines.length };
+  }
+}
+
 // ─── Component ──────────────────────────────────────────────────────────────
 
 export function ImportPage() {
+  const qc = useQueryClient();
   const [state, setState] = useState<ImportState>("select");
-  const [entries, setEntries] = useState<ParsedEntry[]>([]);
+  const [previewSource, setPreviewSource] = useState<PreviewSource | null>(null);
+  const [mdRows, setMdRows] = useState<FolderRow[]>([]);
+  const [jsonEntries, setJsonEntries] = useState<ParsedEntry[]>([]);
   const [jobId, setJobId] = useState<string | null>(null);
   const [uploadResult, setUploadResult] = useState<{
     entries_uploaded: number;
     errors: string[];
+    batchCount: number;
   } | null>(null);
   const [jsonInput, setJsonInput] = useState("");
+  const [uploadProgress, setUploadProgress] = useState<{
+    uploadedFiles: number;
+    totalFiles: number;
+    batchIndex: number;
+  } | null>(null);
 
   const folderInputRef = useRef<HTMLInputElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const jsonFileInputRef = useRef<HTMLInputElement>(null);
+  const uploadAbortRef = useRef<AbortController | null>(null);
 
-  const streamImport = useStreamImport();
   const jobStatus = useJobStatus(jobId);
 
-  // Derived
-  const selectedEntries = useMemo(
-    () => entries.filter((e) => e.selected),
-    [entries],
+  const selectedMd = useMemo(
+    () => mdRows.filter((r) => r.selected),
+    [mdRows],
   );
-  const selectedCount = selectedEntries.length;
-  const totalSize = useMemo(
-    () => selectedEntries.reduce((sum, e) => sum + e.size, 0),
-    [selectedEntries],
+  const selectedJson = useMemo(
+    () => jsonEntries.filter((e) => e.selected),
+    [jsonEntries],
   );
+
+  const previewRowsMd = useMemo(() => {
+    if (mdRows.length <= FOLDER_PREVIEW_LIST_CAP) return mdRows;
+    return mdRows.slice(0, FOLDER_PREVIEW_LIST_CAP);
+  }, [mdRows]);
+
+  const selectedCount =
+    previewSource === "markdown" ? selectedMd.length : selectedJson.length;
+  const totalSize = useMemo(() => {
+    if (previewSource === "markdown") {
+      return selectedMd.reduce((s, r) => s + r.size, 0);
+    }
+    return selectedJson.reduce((s, e) => s + e.size, 0);
+  }, [previewSource, selectedMd, selectedJson]);
+
   const kindBreakdown = useMemo(() => {
     const counts: Record<string, number> = {};
-    for (const e of selectedEntries) {
-      counts[e.kind] = (counts[e.kind] || 0) + 1;
+    if (previewSource === "markdown") {
+      for (const r of selectedMd) {
+        counts[r.kindGuess] = (counts[r.kindGuess] || 0) + 1;
+      }
+    } else {
+      for (const e of selectedJson) {
+        counts[e.kind] = (counts[e.kind] || 0) + 1;
+      }
     }
     return Object.entries(counts).sort((a, b) => b[1] - a[1]);
-  }, [selectedEntries]);
+  }, [previewSource, selectedMd, selectedJson]);
 
-  const allSelected = entries.length > 0 && entries.every((e) => e.selected);
+  const allSelected =
+    previewSource === "markdown"
+      ? mdRows.length > 0 && mdRows.every((r) => r.selected)
+      : jsonEntries.length > 0 && jsonEntries.every((e) => e.selected);
 
-  // ─── File parsing ───────────────────────────────────────────────────────
+  // ─── Markdown staging (no file bodies in memory) ──────────────────────────
 
-  const parseFiles = async (files: File[]) => {
+  const stageMarkdownFiles = (files: File[]) => {
     const mdFiles = files.filter((f) => f.name.endsWith(".md"));
     if (!mdFiles.length) {
       toast.error("No .md files found");
       return;
     }
 
-    const parsed: ParsedEntry[] = [];
-    for (const file of mdFiles) {
-      const raw = await file.text();
-      const { meta, body } = parseFrontmatter(raw);
-      const relPath = (file as File & { webkitRelativePath: string })
-        .webkitRelativePath;
-      const kind = (meta.kind as string) || guessKindFromPath(relPath || file.name);
-      const title = (meta.title as string) || file.name.replace(/\.md$/, "");
-
-      parsed.push({
+    const rows: FolderRow[] = mdFiles.map((file) => {
+      const relPath =
+        (file as File & { webkitRelativePath?: string }).webkitRelativePath ||
+        file.name;
+      return {
         file,
-        kind,
-        title,
-        body,
-        tags: (meta.tags as string[]) || [],
-        source: (meta.source as string) || "import",
-        identity_key: (meta.identity_key as string) || null,
-        expires_at: (meta.expires_at as string) || null,
-        created_at: (meta.created as string) || null,
-        meta: extractCustomMeta(meta),
-        selected: true,
+        relPath,
         size: file.size,
-      });
-    }
+        selected: true,
+        kindGuess: guessKindFromPath(relPath),
+        titleGuess: file.name.replace(/\.md$/, ""),
+      };
+    });
 
-    setEntries(parsed);
+    setMdRows(rows);
+    setJsonEntries([]);
+    setPreviewSource("markdown");
     setState("preview");
   };
 
   const handleFolderSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = Array.from(e.target.files ?? []);
-    parseFiles(files);
+    stageMarkdownFiles(files);
     e.target.value = "";
   };
 
   const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = Array.from(e.target.files ?? []);
-    parseFiles(files);
+    stageMarkdownFiles(files);
     e.target.value = "";
   };
 
   // ─── Selection ──────────────────────────────────────────────────────────
 
-  const toggleEntry = (index: number) => {
-    setEntries((prev) =>
+  const toggleMdRowByPath = (relPath: string) => {
+    if (mdRows.length > FOLDER_PREVIEW_LIST_CAP) return;
+    setMdRows((prev) =>
+      prev.map((r) =>
+        r.relPath === relPath ? { ...r, selected: !r.selected } : r,
+      ),
+    );
+  };
+
+  const toggleJsonEntry = (index: number) => {
+    setJsonEntries((prev) =>
       prev.map((e, i) => (i === index ? { ...e, selected: !e.selected } : e)),
     );
   };
 
   const toggleAll = () => {
     const newVal = !allSelected;
-    setEntries((prev) => prev.map((e) => ({ ...e, selected: newVal })));
+    if (previewSource === "markdown") {
+      setMdRows((prev) => prev.map((r) => ({ ...r, selected: newVal })));
+    } else {
+      setJsonEntries((prev) => prev.map((e) => ({ ...e, selected: newVal })));
+    }
+  };
+
+  const invalidateVaultQueries = () => {
+    qc.invalidateQueries({ queryKey: ["entries"] });
+    qc.invalidateQueries({ queryKey: ["usage"] });
   };
 
   // ─── Upload ─────────────────────────────────────────────────────────────
 
   const startUpload = async () => {
+    const controller = new AbortController();
+    uploadAbortRef.current = controller;
+
     setState("uploading");
-    const ndjson = entriesToNdjson(selectedEntries);
+    setUploadProgress(null);
 
     try {
-      const result = await streamImport.mutateAsync(ndjson);
-      setUploadResult({
-        entries_uploaded: result.entries_uploaded,
-        errors: result.errors,
-      });
-      setJobId(result.job_id);
-      setState("indexing");
+      if (previewSource === "markdown") {
+        const rows = selectedMd;
+        if (!rows.length) {
+          setState("preview");
+          return;
+        }
+
+        let totalUploaded = 0;
+        const allErrors: string[] = [];
+        let lastJobId: string | null = null;
+        let batchCount = 0;
+        let uploadedFiles = 0;
+
+        setUploadProgress({
+          uploadedFiles: 0,
+          totalFiles: rows.length,
+          batchIndex: 0,
+        });
+
+        for await (const { ndjson, lineCount } of ndjsonBatchesFromFolderRows(
+          rows,
+          FOLDER_IMPORT_MAX_BATCH_BYTES,
+          controller.signal,
+        )) {
+          batchCount += 1;
+          setUploadProgress({
+            uploadedFiles,
+            totalFiles: rows.length,
+            batchIndex: batchCount,
+          });
+
+          const result = await streamImport(ndjson);
+          totalUploaded += result.entries_uploaded;
+          allErrors.push(...result.errors);
+          lastJobId = result.job_id;
+
+          uploadedFiles += lineCount;
+          setUploadProgress({
+            uploadedFiles,
+            totalFiles: rows.length,
+            batchIndex: batchCount,
+          });
+
+          await pollVaultImportJobUntilTerminal(result.job_id, {
+            signal: controller.signal,
+          });
+        }
+
+        if (!lastJobId) {
+          toast.error("Nothing to upload");
+          setState("preview");
+          return;
+        }
+
+        invalidateVaultQueries();
+        setUploadResult({
+          entries_uploaded: totalUploaded,
+          errors: allErrors,
+          batchCount,
+        });
+        setJobId(lastJobId);
+        setState("indexing");
+      } else {
+        const ndjson = entriesToNdjson(selectedJson);
+        const result = await streamImport(ndjson);
+        invalidateVaultQueries();
+        setUploadResult({
+          entries_uploaded: result.entries_uploaded,
+          errors: result.errors,
+          batchCount: 1,
+        });
+        setJobId(result.job_id);
+        setState("indexing");
+      }
     } catch (err) {
-      toast.error(
-        err instanceof Error ? err.message : "Upload failed",
-      );
+      if (err instanceof DOMException && err.name === "AbortError") {
+        toast.message("Import cancelled");
+      } else {
+        toast.error(err instanceof Error ? err.message : "Upload failed");
+      }
       setState("preview");
+    } finally {
+      uploadAbortRef.current = null;
+      setUploadProgress(null);
     }
   };
 
@@ -303,7 +503,9 @@ export function ImportPage() {
       size: JSON.stringify(item).length,
     }));
 
-    setEntries(parsed);
+    setJsonEntries(parsed);
+    setMdRows([]);
+    setPreviewSource("json");
     setJsonInput("");
     setState("preview");
   };
@@ -322,26 +524,30 @@ export function ImportPage() {
   // ─── Reset ──────────────────────────────────────────────────────────────
 
   const reset = () => {
+    uploadAbortRef.current?.abort();
+    uploadAbortRef.current = null;
     setState("select");
-    setEntries([]);
+    setMdRows([]);
+    setJsonEntries([]);
+    setPreviewSource(null);
     setJobId(null);
     setUploadResult(null);
     setJsonInput("");
+    setUploadProgress(null);
   };
 
-  // ─── Check if indexing is complete ──────────────────────────────────────
-
   const job = jobStatus.data;
-  if (
-    state === "indexing" &&
-    job &&
-    (job.status === "complete" || job.status === "failed")
-  ) {
-    // Transition to complete on next render
-    if (state === "indexing") {
-      setTimeout(() => setState("complete"), 0);
+
+  useEffect(() => {
+    if (state !== "indexing") return;
+    if (!job) return;
+    if (job.status === "complete" || job.status === "failed") {
+      setState("complete");
     }
-  }
+  }, [state, job?.status]);
+
+  const previewCount =
+    previewSource === "markdown" ? mdRows.length : jsonEntries.length;
 
   // ─── Render ─────────────────────────────────────────────────────────────
 
@@ -350,7 +556,8 @@ export function ImportPage() {
       <div>
         <h1 className="text-2xl font-bold">Import</h1>
         <p className="text-sm text-muted-foreground mt-1">
-          Import entries from your local vault or a JSON export.
+          Import entries from your local vault or a JSON export. Large folders
+          upload in batches (bodies are read per batch, not all at once).
         </p>
       </div>
 
@@ -372,7 +579,8 @@ export function ImportPage() {
                     Select your vault folder
                   </p>
                   <p className="text-xs text-muted-foreground mt-1">
-                    All .md files will be parsed
+                    All .md files — preview uses paths only; content uploads in
+                    chunks
                   </p>
                 </div>
                 <Button
@@ -480,15 +688,16 @@ export function ImportPage() {
       )}
 
       {/* ─── State 2: Preview ─────────────────────────────────────────── */}
-      {state === "preview" && (
+      {state === "preview" && previewSource && (
         <>
-          {/* Summary bar */}
           <Card>
             <CardContent className="pt-4 pb-4">
               <div className="flex items-center justify-between gap-4">
                 <div className="space-y-1 min-w-0">
                   <p className="text-sm font-medium">
-                    {entries.length} files selected ({formatBytes(totalSize)})
+                    {previewCount}{" "}
+                    {previewSource === "markdown" ? "files" : "entries"} (
+                    {formatBytes(totalSize)})
                   </p>
                   <div className="flex flex-wrap gap-1.5">
                     {kindBreakdown.map(([kind, count]) => (
@@ -501,6 +710,15 @@ export function ImportPage() {
                       </span>
                     ))}
                   </div>
+                  {previewSource === "markdown" &&
+                    mdRows.length > FOLDER_PREVIEW_LIST_CAP && (
+                      <p className="text-xs text-muted-foreground pt-1">
+                        Showing first {FOLDER_PREVIEW_LIST_CAP} paths. Kinds are
+                        inferred from folder names until upload (then
+                        frontmatter is read). Use Select all / Deselect all for
+                        the full set of {mdRows.length} files.
+                      </p>
+                    )}
                 </div>
                 <Button variant="ghost" size="sm" onClick={toggleAll}>
                   {allSelected ? "Deselect all" : "Select all"}
@@ -509,54 +727,76 @@ export function ImportPage() {
             </CardContent>
           </Card>
 
-          {/* File list */}
           <Card>
             <CardContent className="p-0">
               <div className="max-h-[400px] overflow-y-auto divide-y">
-                {entries.map((entry, i) => (
-                  <div
-                    key={i}
-                    className="flex items-center gap-3 px-4 py-2 hover:bg-muted/50 transition-colors"
-                  >
-                    <Checkbox
-                      checked={entry.selected}
-                      onCheckedChange={() => toggleEntry(i)}
-                    />
-                    <Badge
-                      variant="secondary"
-                      className={`text-[10px] px-1.5 py-0 font-normal shrink-0 ${kindColor(entry.kind)}`}
+                {previewSource === "markdown" &&
+                  previewRowsMd.map((row, i) => (
+                    <div
+                      key={`${row.relPath}-${i}`}
+                      className="flex items-center gap-3 px-4 py-2 hover:bg-muted/50 transition-colors"
                     >
-                      {entry.kind}
-                    </Badge>
-                    <span className="text-sm truncate flex-1 min-w-0">
-                      {entry.title}
-                    </span>
-                    <span className="text-xs text-muted-foreground shrink-0">
-                      {formatBytes(entry.size)}
-                    </span>
-                  </div>
-                ))}
+                      <Checkbox
+                        checked={row.selected}
+                        disabled={mdRows.length > FOLDER_PREVIEW_LIST_CAP}
+                        onCheckedChange={() => toggleMdRowByPath(row.relPath)}
+                      />
+                      <Badge
+                        variant="secondary"
+                        className={`text-[10px] px-1.5 py-0 font-normal shrink-0 ${kindColor(row.kindGuess)}`}
+                      >
+                        {row.kindGuess}
+                      </Badge>
+                      <span className="text-sm truncate flex-1 min-w-0">
+                        {row.titleGuess}
+                      </span>
+                      <span className="text-xs text-muted-foreground shrink-0">
+                        {formatBytes(row.size)}
+                      </span>
+                    </div>
+                  ))}
+                {previewSource === "json" &&
+                  jsonEntries.map((entry, i) => (
+                    <div
+                      key={i}
+                      className="flex items-center gap-3 px-4 py-2 hover:bg-muted/50 transition-colors"
+                    >
+                      <Checkbox
+                        checked={entry.selected}
+                        onCheckedChange={() => toggleJsonEntry(i)}
+                      />
+                      <Badge
+                        variant="secondary"
+                        className={`text-[10px] px-1.5 py-0 font-normal shrink-0 ${kindColor(entry.kind)}`}
+                      >
+                        {entry.kind}
+                      </Badge>
+                      <span className="text-sm truncate flex-1 min-w-0">
+                        {entry.title}
+                      </span>
+                      <span className="text-xs text-muted-foreground shrink-0">
+                        {formatBytes(entry.size)}
+                      </span>
+                    </div>
+                  ))}
               </div>
             </CardContent>
           </Card>
 
-          {/* Action bar */}
           <div className="flex items-center justify-between">
             <Button variant="ghost" size="sm" onClick={reset}>
               Back
             </Button>
             <div className="flex items-center gap-3">
-              {entries.length > 10000 && (
+              {previewCount > 5000 && (
                 <p className="text-xs text-muted-foreground">
-                  Large upload. Indexing may take a few minutes.
+                  Large vault — upload runs in batches; expect several minutes.
                 </p>
               )}
-              <Button
-                onClick={startUpload}
-                disabled={selectedCount === 0}
-              >
+              <Button onClick={startUpload} disabled={selectedCount === 0}>
                 <Upload className="size-4 mr-2" />
-                Upload {selectedCount} {selectedCount === 1 ? "entry" : "entries"}
+                Upload {selectedCount}{" "}
+                {selectedCount === 1 ? "entry" : "entries"}
               </Button>
             </div>
           </div>
@@ -570,10 +810,20 @@ export function ImportPage() {
             <div className="flex items-center gap-3">
               <Loader2 className="size-5 animate-spin text-muted-foreground" />
               <p className="text-sm font-medium">
-                Uploading {selectedCount} entries...
+                {uploadProgress
+                  ? `Uploading ${uploadProgress.uploadedFiles} / ${uploadProgress.totalFiles} files (batch ${uploadProgress.batchIndex})…`
+                  : `Uploading ${selectedCount} entries…`}
               </p>
             </div>
-            <Progress className="h-2" />
+            <Progress
+              className="h-2"
+              value={
+                uploadProgress && uploadProgress.totalFiles > 0
+                  ? (uploadProgress.uploadedFiles / uploadProgress.totalFiles) *
+                    100
+                  : undefined
+              }
+            />
           </CardContent>
         </Card>
       )}
@@ -583,20 +833,32 @@ export function ImportPage() {
         <Card>
           <CardContent className="pt-6 pb-6 space-y-4">
             <p className="text-sm font-medium">
-              Uploaded {uploadResult.entries_uploaded} entries. Indexing...
+              Uploaded {uploadResult.entries_uploaded} entries
+              {uploadResult.batchCount > 1
+                ? ` in ${uploadResult.batchCount} batches`
+                : ""}
+              . Indexing…
             </p>
             {job && (
               <>
                 <Progress
                   value={
-                    job.entries_uploaded > 0
-                      ? (job.entries_embedded / job.entries_uploaded) * 100
-                      : 0
+                    uploadResult.batchCount > 1
+                      ? job.status === "complete"
+                        ? 100
+                        : job.entries_uploaded > 0
+                          ? (job.entries_embedded / job.entries_uploaded) * 100
+                          : 0
+                      : job.entries_uploaded > 0
+                        ? (job.entries_embedded / job.entries_uploaded) * 100
+                        : 0
                   }
                   className="h-2"
                 />
                 <p className="text-xs text-muted-foreground">
-                  Indexing: {job.entries_embedded} / {job.entries_uploaded}
+                  {uploadResult.batchCount > 1
+                    ? `Final batch: ${job.entries_embedded} / ${job.entries_uploaded}`
+                    : `Indexing: ${job.entries_embedded} / ${job.entries_uploaded}`}
                 </p>
               </>
             )}
@@ -604,7 +866,7 @@ export function ImportPage() {
               <div className="flex items-center gap-2">
                 <Loader2 className="size-4 animate-spin text-muted-foreground" />
                 <p className="text-xs text-muted-foreground">
-                  Waiting for job status...
+                  Waiting for job status…
                 </p>
               </div>
             )}
@@ -646,8 +908,15 @@ export function ImportPage() {
                 <div>
                   <p className="text-sm font-medium">Import complete</p>
                   <p className="text-xs text-muted-foreground mt-0.5">
-                    {job?.entries_uploaded ?? uploadResult?.entries_uploaded ?? 0}{" "}
-                    entries uploaded, {job?.entries_embedded ?? 0} indexed
+                    {uploadResult?.entries_uploaded ?? 0} entries uploaded
+                    {uploadResult && uploadResult.batchCount > 1
+                      ? ` (${uploadResult.batchCount} batches)`
+                      : ""}
+                    {job && uploadResult?.batchCount === 1
+                      ? `, ${job.entries_embedded} indexed`
+                      : job
+                        ? " — search indexing finished for the final batch"
+                        : ""}
                   </p>
                 </div>
               </div>

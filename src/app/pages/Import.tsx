@@ -448,16 +448,76 @@ export function ImportPage() {
         setJobId(lastJobId);
         setState("indexing");
       } else {
-        const ndjson = entriesToNdjson(selectedJson);
-        const result = await streamImport(ndjson);
-        invalidateVaultQueries();
-        setUploadResult({
-          entries_uploaded: result.entries_uploaded,
-          errors: result.errors,
-          batchCount: 1,
-        });
-        setJobId(result.job_id);
-        setState("indexing");
+        // For large JSON imports, split into chunks to avoid body size limits
+        const entries = selectedJson;
+        const totalEntries = entries.length;
+        let totalUploaded = 0;
+        const allErrors: string[] = [];
+        let lastJobId: string | null = null;
+        let batchCount = 0;
+
+        if (totalEntries > 5000) {
+          // Split into chunks of 5000 entries each
+          setUploadProgress({
+            uploadedFiles: 0,
+            totalFiles: totalEntries,
+            batchIndex: 0,
+          });
+
+          for (let i = 0; i < entries.length; i += 5000) {
+            batchCount += 1;
+            const chunk = entries.slice(i, Math.min(i + 5000, entries.length));
+            const ndjson = entriesToNdjson(chunk);
+
+            setUploadProgress({
+              uploadedFiles: i,
+              totalFiles: totalEntries,
+              batchIndex: batchCount,
+            });
+
+            const result = await streamImport(ndjson);
+            totalUploaded += result.entries_uploaded;
+            allErrors.push(...result.errors);
+            lastJobId = result.job_id;
+
+            setUploadProgress({
+              uploadedFiles: Math.min(i + 5000, totalEntries),
+              totalFiles: totalEntries,
+              batchIndex: batchCount,
+            });
+
+            await pollVaultImportJobUntilTerminal(result.job_id, {
+              signal: controller.signal,
+            });
+          }
+
+          if (!lastJobId) {
+            toast.error("Nothing to upload");
+            setState("preview");
+            return;
+          }
+
+          invalidateVaultQueries();
+          setUploadResult({
+            entries_uploaded: totalUploaded,
+            errors: allErrors,
+            batchCount,
+          });
+          setJobId(lastJobId);
+          setState("indexing");
+        } else {
+          // Small import, send in one batch
+          const ndjson = entriesToNdjson(selectedJson);
+          const result = await streamImport(ndjson);
+          invalidateVaultQueries();
+          setUploadResult({
+            entries_uploaded: result.entries_uploaded,
+            errors: result.errors,
+            batchCount: 1,
+          });
+          setJobId(result.job_id);
+          setState("indexing");
+        }
       }
     } catch (err) {
       if (err instanceof DOMException && err.name === "AbortError") {

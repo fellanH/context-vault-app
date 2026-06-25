@@ -746,6 +746,28 @@ export function Dashboard() {
               </CardContent>
             </Card>
           )}
+          {/* Browse Local Vault (always available to connected users) */}
+          {!localVault.isLocalMode && (
+            <div className="flex items-center justify-between rounded-lg border border-border bg-muted/30 px-4 py-3">
+              <div>
+                <span className="text-sm font-medium">Browse Local Vault</span>
+                <p className="text-xs text-muted-foreground mt-0.5">
+                  Read your local vault folder without uploading
+                  {"showDirectoryPicker" in window ? "" : " · Requires Chrome or Edge"}
+                </p>
+              </div>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={handleOpenLocalVault}
+                disabled={localVault.isLoading}
+                className="gap-2 shrink-0"
+              >
+                <FolderOpen className="size-3.5" />
+                {localVault.isLoading ? "Opening..." : "Browse"}
+              </Button>
+            </div>
+          )}
         </>
       )}
 
@@ -866,7 +888,7 @@ export function Dashboard() {
         </>
       )}
 
-      {/* Browse Local Vault Button (when not in local mode) */}
+      {/* Browse Local Vault Button (unauthenticated / not yet connected) */}
       {!localVault.isLocalMode && !isConnected && (
         <div className="text-center space-y-3 pt-2">
           <p className="text-sm text-muted-foreground">

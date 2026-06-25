@@ -1,4 +1,4 @@
-import type { Entry } from "./types";
+import type { Entry, KnowledgeKind, EntityKind, EventKind } from "./types";
 
 const VAULT_HANDLE_KEY = "localVaultHandle";
 
@@ -84,12 +84,14 @@ function getCategoryFromPath(
   return null;
 }
 
-/**
- * Get kind from directory path (second level).
- */
-function getKindFromPath(path: string): string {
-  const parts = path.split("/");
-  return parts[1] || "unknown";
+const KNOWN_KINDS = new Set<string>([
+  "insight", "decision", "pattern", "reference",
+  "project", "contact", "tool",
+  "session", "log",
+]);
+
+function normalizeKind(name: string): KnowledgeKind | EntityKind | EventKind {
+  return (KNOWN_KINDS.has(name) ? name : "reference") as KnowledgeKind | EntityKind | EventKind;
 }
 
 export interface LocalVaultScanOptions {
@@ -144,7 +146,7 @@ async function scanCategory(
 ): Promise<void> {
   let processedCount = 0;
 
-  for await (const entry of catHandle) {
+  for await (const entry of catHandle.values()) {
     if (entry.kind === "directory") {
       await scanKindDir(
         entry as FileSystemDirectoryHandle,
@@ -167,7 +169,7 @@ async function scanKindDir(
   entries: LocalVaultEntry[],
   onProcessed: () => void,
 ): Promise<void> {
-  for await (const entry of kindHandle) {
+  for await (const entry of kindHandle.values()) {
     if (entry.kind === "file" && entry.name.endsWith(".md")) {
       const fileHandle = entry as FileSystemFileHandle;
       try {
@@ -196,7 +198,7 @@ async function scanKindDir(
 
         const localEntry: LocalVaultEntry = {
           id: String(frontmatter.id || entry.name.replace(".md", "")),
-          kind: kindName,
+          kind: normalizeKind(kindName),
           category,
           title: extractTitle(body),
           body: "", // Empty for now, load on demand

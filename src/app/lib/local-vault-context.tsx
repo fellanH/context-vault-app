@@ -39,17 +39,19 @@ export function LocalVaultProvider({ children }: { children: ReactNode }) {
     try {
       setIsLoading(true);
       setError(null);
+      setEntries([]);
 
       const dirHandle = await openVaultDirectory();
-      const path = dirHandle.name;
-
-      const scanned = await scanVaultEntries(dirHandle);
-      setEntries(scanned);
-      setVaultPath(path);
+      setVaultPath(dirHandle.name);
       setIsLocalMode(true);
+
+      await scanVaultEntries(dirHandle, {
+        onBatch: (batch) => {
+          setEntries((prev) => [...prev, ...batch]);
+        },
+      });
     } catch (err) {
       if (err instanceof DOMException && err.name === "AbortError") {
-        // User cancelled the picker
         setError(null);
       } else {
         setError(
@@ -92,13 +94,17 @@ export function LocalVaultProvider({ children }: { children: ReactNode }) {
       const dirHandle = await restoreVaultDirectory();
       if (!dirHandle) return;
 
-      const scanned = await scanVaultEntries(dirHandle);
-      setEntries(scanned);
       setVaultPath(dirHandle.name);
       setIsLocalMode(true);
+      setEntries([]);
+
+      await scanVaultEntries(dirHandle, {
+        onBatch: (batch) => {
+          setEntries((prev) => [...prev, ...batch]);
+        },
+      });
     } catch (err) {
       console.warn("Failed to restore local vault:", err);
-      // Silently fail on restore
     }
   }, []);
 

@@ -96,6 +96,8 @@ function normalizeKind(name: string): KnowledgeKind | EntityKind | EventKind {
 
 export interface LocalVaultScanOptions {
   onProgress?: (processed: number, total: number) => void;
+  onBatch?: (entries: LocalVaultEntry[]) => void;
+  concurrency?: number;
 }
 
 interface IndexEntry {
@@ -113,131 +115,116 @@ interface IndexEntry {
   _fileHandle: FileSystemFileHandle;
 }
 
+interface FileRef {
+  fileHandle: FileSystemFileHandle;
+  catName: string;
+  kindName: string;
+}
+
 /**
  * Scan vault directory and return lightweight index entries.
- * Bodies are NOT loaded (lazy load on demand).
+ * Phase 1: fast directory traversal (no file reads).
+ * Phase 2: parallel batched reads of first 1KB only (frontmatter + title).
  */
 export async function scanVaultEntries(
   dirHandle: FileSystemDirectoryHandle,
   opts?: LocalVaultScanOptions,
 ): Promise<LocalVaultEntry[]> {
-  const entries: LocalVaultEntry[] = [];
+  const concurrency = opts?.concurrency ?? 50;
   const categoryDirs = ["knowledge", "entities", "events"];
 
+  // Phase 1: collect all file handles (no file reads yet)
+  const refs: FileRef[] = [];
   for (const catDir of categoryDirs) {
     try {
-      const catHandle = await dirHandle.getDirectoryHandle(catDir, {
-        create: false,
-      });
-      await scanCategory(catHandle, catDir, entries, opts);
-    } catch (e) {
+      const catHandle = await dirHandle.getDirectoryHandle(catDir, { create: false });
+      for await (const kindEntry of catHandle.values()) {
+        if (kindEntry.kind !== "directory") continue;
+        const kindHandle = kindEntry as FileSystemDirectoryHandle;
+        for await (const fileEntry of kindHandle.values()) {
+          if (fileEntry.kind === "file" && fileEntry.name.endsWith(".md")) {
+            refs.push({
+              fileHandle: fileEntry as FileSystemFileHandle,
+              catName: catDir,
+              kindName: kindHandle.name,
+            });
+          }
+        }
+      }
+    } catch {
       // Category dir doesn't exist, skip
     }
   }
 
-  return entries;
-}
+  opts?.onProgress?.(0, refs.length);
 
-async function scanCategory(
-  catHandle: FileSystemDirectoryHandle,
-  catName: string,
-  entries: LocalVaultEntry[],
-  opts?: LocalVaultScanOptions,
-): Promise<void> {
-  let processedCount = 0;
+  // Phase 2: process in parallel batches, reading only first 1KB per file
+  const all: LocalVaultEntry[] = [];
+  let processed = 0;
 
-  for await (const entry of catHandle.values()) {
-    if (entry.kind === "directory") {
-      await scanKindDir(
-        entry as FileSystemDirectoryHandle,
-        catName,
-        entry.name,
-        entries,
-        () => {
-          processedCount++;
-          opts?.onProgress?.(processedCount, -1);
-        },
-      );
-    }
+  for (let i = 0; i < refs.length; i += concurrency) {
+    const batch = refs.slice(i, i + concurrency);
+    const results = await Promise.all(batch.map((ref) => parseFileRef(ref)));
+    const valid = results.filter((e): e is LocalVaultEntry => e !== null);
+    all.push(...valid);
+    processed += batch.length;
+    opts?.onProgress?.(processed, refs.length);
+    opts?.onBatch?.(valid);
   }
+
+  return all;
 }
 
-async function scanKindDir(
-  kindHandle: FileSystemDirectoryHandle,
-  catName: string,
-  kindName: string,
-  entries: LocalVaultEntry[],
-  onProcessed: () => void,
-): Promise<void> {
-  for await (const entry of kindHandle.values()) {
-    if (entry.kind === "file" && entry.name.endsWith(".md")) {
-      const fileHandle = entry as FileSystemFileHandle;
-      try {
-        const file = await fileHandle.getFile();
-        const content = await file.text();
-        const frontmatter = parseFrontmatter(content);
-        const body = extractBody(content);
+async function parseFileRef(ref: FileRef): Promise<LocalVaultEntry | null> {
+  try {
+    const file = await ref.fileHandle.getFile();
+    // Read only first 1KB — enough for frontmatter + title line
+    const slice = file.slice(0, 1024);
+    const content = await slice.text();
+    const frontmatter = parseFrontmatter(content);
+    const body = extractBody(content);
 
-        const category =
-          catName === "entities"
-            ? ("entity" as const)
-            : catName === "events"
-              ? ("event" as const)
-              : ("knowledge" as const);
+    const category =
+      ref.catName === "entities"
+        ? ("entity" as const)
+        : ref.catName === "events"
+          ? ("event" as const)
+          : ("knowledge" as const);
 
-        const created = frontmatter.created
-          ? new Date(frontmatter.created as string)
-          : new Date();
-        const updated = frontmatter.updated
-          ? new Date(frontmatter.updated as string)
-          : new Date();
+    const created = frontmatter.created
+      ? new Date(frontmatter.created as string)
+      : new Date();
+    const updated = frontmatter.updated
+      ? new Date(frontmatter.updated as string)
+      : new Date();
 
-        // Fallback to current time if date parsing fails
-        if (isNaN(created.getTime())) created.setTime(Date.now());
-        if (isNaN(updated.getTime())) updated.setTime(Date.now());
+    if (isNaN(created.getTime())) created.setTime(Date.now());
+    if (isNaN(updated.getTime())) updated.setTime(Date.now());
 
-        const localEntry: LocalVaultEntry = {
-          id: String(frontmatter.id || entry.name.replace(".md", "")),
-          kind: normalizeKind(kindName),
-          category,
-          title: extractTitle(body),
-          body: "", // Empty for now, load on demand
-          tags: Array.isArray(frontmatter.tags)
-            ? frontmatter.tags
-            : typeof frontmatter.tags === "string"
-              ? [frontmatter.tags]
-              : [],
-          source:
-            typeof frontmatter.source === "string"
-              ? frontmatter.source
-              : undefined,
-          created,
-          updated,
-          visibility: "private",
-          metadata: {
-            bucket:
-              typeof frontmatter.bucket === "string"
-                ? frontmatter.bucket
-                : undefined,
-            identity_key:
-              typeof frontmatter.identity_key === "string"
-                ? frontmatter.identity_key
-                : undefined,
-            expires_at:
-              typeof frontmatter.expires_at === "string"
-                ? frontmatter.expires_at
-                : undefined,
-          },
-          _fileHandle: fileHandle,
-        };
-
-        entries.push(localEntry);
-      } catch (e) {
-        console.warn(`Failed to scan file ${entry.name}:`, e);
-      }
-
-      onProcessed();
-    }
+    return {
+      id: String(frontmatter.id || ref.fileHandle.name.replace(".md", "")),
+      kind: normalizeKind(ref.kindName),
+      category,
+      title: extractTitle(body),
+      body: "",
+      tags: Array.isArray(frontmatter.tags)
+        ? frontmatter.tags
+        : typeof frontmatter.tags === "string"
+          ? [frontmatter.tags]
+          : [],
+      source: typeof frontmatter.source === "string" ? frontmatter.source : undefined,
+      created,
+      updated,
+      visibility: "private",
+      metadata: {
+        bucket: typeof frontmatter.bucket === "string" ? frontmatter.bucket : undefined,
+        identity_key: typeof frontmatter.identity_key === "string" ? frontmatter.identity_key : undefined,
+        expires_at: typeof frontmatter.expires_at === "string" ? frontmatter.expires_at : undefined,
+      },
+      _fileHandle: ref.fileHandle,
+    };
+  } catch {
+    return null;
   }
 }
 

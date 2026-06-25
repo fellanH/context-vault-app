@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Link, useNavigate } from "react-router";
 import {
   Card,
@@ -10,6 +10,8 @@ import { Badge } from "../components/ui/badge";
 import { Button } from "../components/ui/button";
 import { useEntries, useUsage, useApiKeys, useTeams, useTeamVaultStatus, useVaultHealth, type Team } from "../lib/hooks";
 import { useAuth } from "../lib/auth";
+import { useLocalVault } from "../lib/local-vault-context";
+import { EntryInspector } from "../components/EntryInspector";
 import {
   getOnboardingSteps,
   getMigrationSteps,
@@ -40,8 +42,11 @@ import {
   ScrollText,
   Users,
   ArrowRight,
+  FolderOpen,
+  AlertCircle,
 } from "lucide-react";
 import { toast } from "sonner";
+import type { Entry } from "../lib/types";
 import changelogData from "../../data/changelog.json";
 
 const WHATS_NEW_KEY = "cv-whats-new-dismissed";
@@ -221,6 +226,15 @@ export function Dashboard() {
   });
   const { data: usage, isLoading: usageLoading, isError: usageError } = useUsage();
   const { data: apiKeys } = useApiKeys();
+  const localVault = useLocalVault();
+
+  const [selectedEntry, setSelectedEntry] = useState<Entry | null>(null);
+  const [inspectorOpen, setInspectorOpen] = useState(false);
+  const [localSearchQuery, setLocalSearchQuery] = useState("");
+
+  useEffect(() => {
+    localVault.restoreIfAvailable();
+  }, []);
 
   const entriesUsed = usage?.entries.used ?? 0;
   const hasMcpActivity = (apiKeys ?? []).some((key) => Boolean(key.lastUsedAt));
@@ -252,6 +266,34 @@ export function Dashboard() {
     dismissOnboarding();
     setShowOnboarding(false);
   };
+
+  const handleOpenLocalVault = async () => {
+    try {
+      await localVault.openLocalVault();
+      toast.success("Local vault opened");
+    } catch (err) {
+      toast.error(
+        err instanceof Error ? err.message : "Failed to open vault directory",
+      );
+    }
+  };
+
+  const handleSelectLocalEntry = async (entry: any) => {
+    // Load body if not already loaded
+    if (!entry.body && entry._fileHandle) {
+      const body = await localVault.loadBody(entry);
+      const entryWithBody = { ...entry, body };
+      setSelectedEntry(entryWithBody);
+    } else {
+      setSelectedEntry(entry);
+    }
+    setInspectorOpen(true);
+  };
+
+  const displayedLocalEntries =
+    localSearchQuery.trim() === ""
+      ? localVault.entries
+      : localVault.searchLocal(localSearchQuery);
 
   const copyCommand = async (cmd: string) => {
     await navigator.clipboard.writeText(cmd);
@@ -706,6 +748,153 @@ export function Dashboard() {
           )}
         </>
       )}
+
+      {/* Local Mode Section */}
+      {localVault.isLocalMode && (
+        <>
+          {/* Local Mode Banner */}
+          <div className="flex items-center justify-between rounded-lg border border-amber-200/50 dark:border-amber-800/50 bg-amber-50 dark:bg-amber-950/20 px-4 py-3">
+            <div className="flex items-center gap-2.5">
+              <FolderOpen className="size-4 text-amber-600 dark:text-amber-400 flex-shrink-0" />
+              <div>
+                <span className="text-sm font-medium text-amber-950 dark:text-amber-100">
+                  Local Mode
+                </span>
+                <span className="text-sm text-amber-800 dark:text-amber-200 ml-2">
+                  Browsing {localVault.vaultPath} (read-only)
+                </span>
+              </div>
+            </div>
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => localVault.closeLocalVault()}
+              aria-label="Exit local mode"
+              className="size-7 p-0"
+            >
+              <X className="size-3.5" />
+            </Button>
+          </div>
+
+          {/* Browser Compatibility Check */}
+          {typeof window !== "undefined" &&
+            !("showDirectoryPicker" in window) && (
+              <div className="flex items-center gap-3 rounded-lg border border-destructive/30 bg-destructive/5 px-4 py-3">
+                <AlertCircle className="size-4 text-destructive flex-shrink-0" />
+                <span className="text-sm text-destructive">
+                  Local vault browsing requires Chrome or Edge.
+                </span>
+              </div>
+            )}
+
+          {/* Local Entries List */}
+          <Card>
+            <CardHeader className="pb-3">
+              <div className="flex items-center justify-between">
+                <CardTitle className="text-base">
+                  Local Entries ({localVault.entries.length})
+                </CardTitle>
+              </div>
+              <div className="mt-3">
+                <input
+                  type="text"
+                  placeholder="Search entries..."
+                  value={localSearchQuery}
+                  onChange={(e) => setLocalSearchQuery(e.target.value)}
+                  className="w-full px-3 py-2 rounded-md border border-border bg-background text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/50"
+                />
+              </div>
+            </CardHeader>
+            <CardContent>
+              {localVault.isLoading ? (
+                <div className="space-y-3 py-2">
+                  {[1, 2, 3].map((i) => (
+                    <div key={i} className="flex items-center justify-between py-2">
+                      <div className="h-4 w-48 bg-muted rounded animate-pulse" />
+                      <div className="h-4 w-12 bg-muted rounded animate-pulse" />
+                    </div>
+                  ))}
+                </div>
+              ) : displayedLocalEntries.length === 0 ? (
+                <p className="text-sm text-muted-foreground text-center py-6">
+                  {localSearchQuery
+                    ? "No entries match your search."
+                    : "No entries found in vault."}
+                </p>
+              ) : (
+                <div className="space-y-1">
+                  {displayedLocalEntries.map((entry) => (
+                    <button
+                      key={entry.id}
+                      onClick={() => handleSelectLocalEntry(entry)}
+                      className="w-full text-left flex items-center justify-between py-2 px-2 rounded-md hover:bg-muted/50 transition-colors group"
+                    >
+                      <div className="flex items-center gap-3 min-w-0 flex-1">
+                        <span className="text-sm font-medium truncate group-hover:text-primary transition-colors">
+                          {entry.title || `(untitled)`}
+                        </span>
+                        <Badge
+                          variant={
+                            entry.category === "knowledge"
+                              ? "default"
+                              : entry.category === "entity"
+                                ? "outline"
+                                : "secondary"
+                          }
+                          className="text-[10px] shrink-0"
+                        >
+                          {entry.category}
+                        </Badge>
+                        <Badge
+                          variant="secondary"
+                          className="text-[10px] shrink-0"
+                        >
+                          {entry.kind}
+                        </Badge>
+                      </div>
+                      {entry.tags && entry.tags.length > 0 && (
+                        <span className="text-xs text-muted-foreground ml-2 shrink-0">
+                          {entry.tags.join(", ")}
+                        </span>
+                      )}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        </>
+      )}
+
+      {/* Browse Local Vault Button (when not in local mode) */}
+      {!localVault.isLocalMode && !isConnected && (
+        <div className="text-center space-y-3 pt-2">
+          <p className="text-sm text-muted-foreground">
+            Or, browse a local vault without uploading
+          </p>
+          <Button
+            variant="outline"
+            onClick={handleOpenLocalVault}
+            disabled={localVault.isLoading}
+            className="gap-2"
+          >
+            <FolderOpen className="size-4" />
+            {localVault.isLoading ? "Opening..." : "Browse Local Vault"}
+          </Button>
+          {!("showDirectoryPicker" in window) && (
+            <p className="text-xs text-muted-foreground">
+              Requires Chrome or Edge
+            </p>
+          )}
+        </div>
+      )}
+
+      {/* EntryInspector for local entries */}
+      <EntryInspector
+        entry={selectedEntry}
+        open={inspectorOpen}
+        onOpenChange={setInspectorOpen}
+      />
     </div>
   );
 }

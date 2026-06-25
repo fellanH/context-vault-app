@@ -1,0 +1,4 @@
+# domain.toml — app package manifest (portable core: id · version · group)
+id = "app"
+version = "0.1.0"
+group = "context-vault"

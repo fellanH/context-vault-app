@@ -165,10 +165,11 @@ export function bearerAuth() {
 /**
  * Hono middleware for vault API routes.
  * Normalizes both session and API key auth into c.get("authUser") with a
- * consistent shape: { id, email, tier, scopes, keyId? }.
+ * consistent shape: { id, email, tier, scopes, keyId?, clientKeyShare? }.
  *
  * Session users get scopes: ["*"]. API key users get their key's scopes.
  * Vault routes read c.get("authUser") directly, so this must set that key.
+ * clientKeyShare is set from X-Vault-Secret header (for split-authority encryption).
  */
 export function vaultAuth() {
   return async (c, next) => {
@@ -178,12 +179,18 @@ export function vaultAuth() {
       return next();
     }
 
+    const vaultSecret = c.req.header("X-Vault-Secret");
+
     // 1. Session via better-auth (already set by global session middleware)
     const authUser = c.get("authUser");
     if (authUser) {
       // Normalize: ensure id/scopes/tier are always present
       if (!authUser.scopes) authUser.scopes = ["*"];
       if (!authUser.tier) authUser.tier = "free";
+      // Thread X-Vault-Secret for encryption
+      if (vaultSecret && vaultSecret.startsWith("cvs_")) {
+        authUser.clientKeyShare = vaultSecret;
+      }
       return next();
     }
 
@@ -197,14 +204,19 @@ export function vaultAuth() {
       const keyUser = await validateApiKeyFromDb(db, token);
       if (keyUser) {
         // Set authUser in the shape vault routes expect (id, not userId)
-        c.set("authUser", {
+        const authUserObj = {
           id: keyUser.userId,
           email: keyUser.email,
           tier: keyUser.tier,
           scopes: keyUser.scopes,
           keyId: keyUser.keyId,
           stripeCustomerId: keyUser.stripeCustomerId,
-        });
+        };
+        // Thread X-Vault-Secret for encryption
+        if (vaultSecret && vaultSecret.startsWith("cvs_")) {
+          authUserObj.clientKeyShare = vaultSecret;
+        }
+        c.set("authUser", authUserObj);
 
         // Fire-and-forget: log API key activity
         const operation = deriveOperation(c.req.path, c.req.method);

@@ -828,7 +828,7 @@ export function Dashboard() {
               </div>
             </CardHeader>
             <CardContent>
-              {localVault.isLoading ? (
+              {localVault.isLoading && displayedLocalEntries.length === 0 ? (
                 <div className="space-y-3 py-2">
                   {[1, 2, 3].map((i) => (
                     <div key={i} className="flex items-center justify-between py-2">

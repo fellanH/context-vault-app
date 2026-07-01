@@ -70,20 +70,6 @@ export function extractBody(content: string): string {
   return lines.slice(i + 1).join("\n").trim();
 }
 
-/**
- * Determine category from directory path.
- */
-function getCategoryFromPath(
-  path: string,
-): "knowledge" | "entity" | "event" | null {
-  const parts = path.split("/");
-  const dir = parts[0];
-  if (dir === "knowledge") return "knowledge";
-  if (dir === "entities") return "entity";
-  if (dir === "events") return "event";
-  return null;
-}
-
 const KNOWN_KINDS = new Set<string>([
   "insight", "decision", "pattern", "reference",
   "project", "contact", "tool",

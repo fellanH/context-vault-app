@@ -10,7 +10,7 @@ export interface LocalVaultEntry extends Entry {
  * Parse YAML frontmatter from a markdown file.
  * Simple inline parser for the subset of YAML used in vault entries.
  */
-function parseFrontmatter(content: string): Record<string, unknown> {
+export function parseFrontmatter(content: string): Record<string, unknown> {
   const lines = content.split("\n");
   if (!lines[0]?.startsWith("---")) return {};
 
@@ -53,7 +53,7 @@ function parseFrontmatter(content: string): Record<string, unknown> {
 /**
  * Extract the first markdown heading from content.
  */
-function extractTitle(body: string): string {
+export function extractTitle(body: string): string {
   const match = body.match(/^#\s+(.+?)$/m);
   return match ? match[1]!.trim() : "";
 }
@@ -61,7 +61,7 @@ function extractTitle(body: string): string {
 /**
  * Remove frontmatter from content, return just the body.
  */
-function extractBody(content: string): string {
+export function extractBody(content: string): string {
   const lines = content.split("\n");
   if (!lines[0]?.startsWith("---")) return content;
 
@@ -90,7 +90,7 @@ const KNOWN_KINDS = new Set<string>([
   "session", "log",
 ]);
 
-function normalizeKind(name: string): KnowledgeKind | EntityKind | EventKind {
+export function normalizeKind(name: string): KnowledgeKind | EntityKind | EventKind {
   return (KNOWN_KINDS.has(name) ? name : "reference") as KnowledgeKind | EntityKind | EventKind;
 }
 
